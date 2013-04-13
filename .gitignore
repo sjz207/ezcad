@@ -1,0 +1,55 @@
+*~
+*.c
+*.h
+*.xml
+*.ezg
+*.o
+*.stl
+*.ngc
+*.png
+*.so.*
+*.off
+*.pyc
+*.wrl
+
+# Directories to ignore:
+EZCAD
+
+# Programs to ignore:
+EZCAD_XML
+Lifter
+SCARA
+ViewSonic
+nef3_to_off
+nh
+off_fixup
+Test1
+Test2
+Tooling
+
+# EZC projects to ignore:
+Lifter.ezc
+SCARA.ezc
+Test1.ezc
+Test2.ezc
+Tooling.ezc
+ViewSonic.ezc
+
+# Miscellaneous to ignore:
+EZCAD.tar.gz
+part.txt
+
+# Python projects to ignore:
+backing_plate.py
+demo?.py
+drawbar.py
+drawbar_stand.py
+gm3_mount_side.py
+gm3_mount_top.py
+grip.py
+pcb_tool_plate.py
+paste.py
+robot.py
+stencil_jig.py
+
+

@@ -1,0 +1,61 @@
+class Part_Or_Assembly:
+
+    def __init__(self, name, coordinate_sytem):
+
+    def dimensions(self):
+	assert False, "No dimensions method defined"
+
+    def process(self):
+	# Do 3D and G-code generation here:
+
+	while True:
+	    self.dimensions_update():
+
+	self.gcode_generate()
+
+	self.generate_3d()
+
+    def dimensions_update(self):
+	# Do dimension updating for children of *self*:
+	changed = False
+	for child in self.children:
+	    changed = changed or child.dimensions_update()
+	
+	# Generate a list of the *before* values for *self*:
+	attribute_names = dir(self)
+	before_values = {}
+	for attribute_name in attribute_names:
+	    before_value = getattr(self, attribute_name)
+	    if isinstance(before_value, int or float or ...):
+		before_values[attribute_name] = before_value
+	
+	# Peform dimension updating for *self*:
+	self.dimensions()
+
+	# See if anything changed:
+	for attribute_name in before_values.keys():
+	    if before_values[attribute_name] != getattr(self, attribute_name)
+		changed := True
+
+	return changed
+
+class Part(Part_Or_Assembly):
+
+class Assembly(Part_Or_Assembly):
+
+class My_Part(Part):
+
+    def __init__(self, parent, coordinate_frame):
+	self.parent = parent
+	self.dim1 = ...
+	self.dim2 = ...
+	Part.__init__(self, parent.coordinate_frame)
+
+    def dimensions(self):
+	self.dim1 = self.dim2 + self.parent.other_part.dim3
+
+    def manufacture(self):
+	# Do operations:
+
+    def assemble(self):
+	# Do assembly placement operations:

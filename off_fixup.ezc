@@ -1,0 +1,797 @@
+easy_c 1.0
+
+# Copyright (c) 2011 by Wayne C. Gramlich.  All rights reserved.
+
+library Easy_C
+library Unix
+library Math
+
+define Edge
+    record
+	point1 Point
+	point2 Point
+
+define Point
+    record
+	index Unsigned
+	triangles Array[Triangle]
+	x Double
+	y Double
+	z Double
+
+define Triangle
+    record
+	index Unsigned
+	mark Unsigned
+	point1 Point
+	point2 Point
+	point3 Point
+	reverses Unsigned
+	triangle12 Triangle
+	triangle13 Triangle
+	triangle23 Triangle
+	nx Double
+	ny Double
+	nz Double
+
+
+routine main@Easy_C
+    takes arguments Array[String]
+    returns Integer
+
+    # Make sure we have some arguments:
+    arguments_size :@= arguments.size
+    if arguments.size <= 1
+	call d@("Usage: Toff2off\n\")
+	return 0i
+
+    # Open {in_stream}, "-" means use standard input:
+    in_stream :@= standard@In_Stream
+    in_file_name :@= arguments[1]
+    if !equal@(in_file_name, "-")
+	in_stream := open@In_Stream(arguments[1])
+	if in_stream == null@In_Stream
+	    call d@(form@("Unable to open %v% for reading\n\") /
+	      f@(arguments[1]))
+	    return 1i
+
+    # Write out the updated offset file:
+    out_stream :@= standard@Out_Stream
+    if arguments.size > 2
+	out_file_name :@= arguments[2]
+	if !equal@(out_file_name, "-")
+	    out_stream := open@Out_Stream(out_file_name)
+	    if out_stream == null@Out_Stream
+		call d@(form@("Could not open %v% for writing\n\") /
+		  f@(out_file_name))
+		return 1i
+
+    # Read in the header:
+    buffer :@= new@String()
+    call line_read@(in_stream, buffer)
+    assert equal@(buffer, "OFF")
+    call put@(buffer, out_stream)
+    call put@('\n\', out_stream)
+
+    # Read in the data sizes:
+    call line_read@(in_stream, buffer)
+    call put@(buffer, out_stream)
+    call put@('\n\', out_stream)
+    #call d@(form@("sizes=%v%\n\") / f@(buffer))
+    points_size :@= unsigned_lop@(buffer)
+    triangles_size :@= unsigned_lop@(buffer)
+    edges_size :@= unsigned_lop@(buffer)
+    #call d@(form@("points=%d% triangles=%d% edges=%d%\n\") %
+    #  f@(points_size) % f@(triangles_size) / f@(edges_size))
+
+    # Read in the points:
+    points :@= new@Array[Point]()
+    index :@= 0
+    while index < points_size
+	# Read line from {in_stream} and immediately output it to {out_stream}:
+	call line_read@(in_stream, buffer)
+	call put@(buffer, out_stream)
+	call put@('\n\', out_stream)
+
+	#call d@(form@("Point[%d%]: %v%\n\") % f@(index) / f@(buffer))
+	x :@= double_lop@(buffer)
+	y :@= double_lop@(buffer)
+	z :@= double_lop@(buffer)
+	point :@= create@Point(x, y, z, index)
+	call append@(points, point)
+	index := index + 1
+
+    # Read in the triangles:
+    triangles :@= new@Array[Triangle]()
+    index := 0
+    while index < triangles_size
+	call line_read@(in_stream, buffer)
+	#call d@(form@("Triangle[%d%]: %v%\n\") % f@(index) / f@(buffer))
+	assert unsigned_lop@(buffer) = 3
+	point1 :@= points[unsigned_lop@(buffer)]
+	point2 :@= points[unsigned_lop@(buffer)]
+	point3 :@= points[unsigned_lop@(buffer)]
+	triangle :@= create@Triangle(point1, point2, point3, index)
+	call append@(triangles, triangle)
+	index := index + 1
+    call close@(in_stream)
+    call flush@(out_stream)
+
+    # Fill in neighbor triangles:
+    index := 0
+    while index < triangles_size
+	triangle :@= triangles[index]
+	call neighbors_find@(triangles[index])
+	index := index + 1
+    #call d@("neighbors found\n\")
+
+    missing_edges :@= new@Array[Edge]()
+    # If debugging is necessary, change 0f to 1t:
+    null :@= null@Triangle
+    index := 0
+    while index < triangles_size
+	triangle :@= triangles[index]
+	if !is_complete@(triangle)
+	    call d@(form@("Incomplete_Triangle[%d%] %p% %i% %i% %i%\n\") %
+	      f@(index) % f@(triangle) % f@(triangle.triangle12) %
+	      f@(triangle.triangle13) / f@(triangle.triangle23))
+	    if triangle.triangle12 == null
+		call append@(missing_edges,
+		  create@Edge(triangle.point1, triangle.point2))
+	    if triangle.triangle13 == null
+		call append@(missing_edges,
+		  create@Edge(triangle.point1, triangle.point3))
+	    if triangle.triangle23 == null
+		call append@(missing_edges,
+		  create@Edge(triangle.point2, triangle.point3))
+	index := index + 1
+    call sort@(missing_edges, compare@Edge)
+    size :@= missing_edges.size
+    if size != 0
+	index := 0
+	while index < size
+	    missing_edge :@= missing_edges[index]
+	    call d@(form@("Missing_Edge[%d%]: %i% %i%\n\") %
+	      f@(index) % f@(missing_edge.point1) / f@(missing_edge.point2))
+	    index := index + 1
+
+	cycles :@= new@Array[Array[Point]]()
+	while missing_edges.size != 0
+	    cycle :@= new@Array[Point]()
+	    edge :@= lop@(missing_edges)
+	    head :@= edge.point1
+	    tail :@= edge.point2
+	    call append@(cycle, head)
+	    while head !== tail
+		size := missing_edges.size
+		index := 0
+		while index < size
+		    missing_edge :@= missing_edges[index]
+		    point1 :@= missing_edge.point1
+		    point2 :@= missing_edge.point2
+		    if point1 == tail
+			call append@(cycle, tail)
+			tail := point2
+			call delete@(missing_edges, index)
+			break
+		    else_if point2 == tail
+			call append@(cycle, tail)
+			tail := point1
+			call delete@(missing_edges, index)
+			break
+		    index := index + 1
+		if index >= size
+		    call d@("Unterminated cycle\n\")
+		    call 0f
+	    call append@(cycles, cycle)
+
+	cycles_size :@= cycles.size
+	cycles_index :@= 0
+	while cycles_index < cycles_size
+	    cycle :@= cycles[cycles_index]
+	    size := cycle.size
+	    call d@(form@("cycles[%d%]: size=%d%\n\") %
+	      f@(cycles_index) / f@(size))
+	    index := 0
+	    while index < size	
+		point :@= cycle[index]
+		call d@(form@("  Cycle[%d%]: %iv%\n\") % f@(index) / f@(point))
+		index := index + 1
+	    cycles_index := cycles_index + 1
+
+    if 0f
+	index := 0
+	while index < points_size
+	    point :@= points[index]
+	    call d@(form@("Point[%d%]: %v% %t%\n\") %
+	      f@(index) % f@(point) / f@(point))
+	    index := index + 1
+	index := 0
+	while index < triangles_size
+	    triangle :@= triangles[index]
+	    call d@(form@("Triangle[%d%]: %i% %n% %s%\n\") %
+	      f@(index) % f@(triangle) % f@(triangle) / f@(triangle))
+	    index := index + 1
+
+    # Find a point with a maximum z:
+    z_maximum_point :@= points[0]
+    z_maximum :@= z_maximum_point.z
+    index := 1
+    while index < points_size
+	point :@= points[index]
+	z :@= point.z
+	if z > z_maximum
+	    z_maximum := z
+	    z_maximum_point := point
+	index := index + 1
+    #call d@(form@("maximum_z=%f% maximum_point=%i%\n\") %
+    #  f@(z_maximum) / f@(z_maximum_point))
+    
+    z_maximum_triangles :@= z_maximum_point.triangles
+    top_triangle :@= z_maximum_triangles[0]
+    nz_maximum :@= absolute@(top_triangle.nz)
+    size := z_maximum_triangles.size
+    index := 1
+    while index < size
+	triangle :@= z_maximum_triangles[index]
+	nz_absolute :@= absolute@(triangle.nz)
+	if nz_absolute > nz_maximum
+	    nz_maximum := nz_absolute
+	    top_triangle := triangle
+	index := index + 1
+    if top_triangle.nz < 0.0
+	call reverse@(top_triangle)
+    #call d@(form@("top_triangle=%d%\n\") / f@(top_triangle.index))
+
+    call consistent_force@(top_triangle, 1, 0x80000000)
+    #call consistent_force@(top_triangle, 1, 0)
+
+    index := 0
+    while index < triangles_size
+	triangle :@= triangles[index]
+	call put@(form@("3 %d% %d% %d%\n\") % f@(triangle.point1.index) %
+	  f@(triangle.point2.index) / f@(triangle.point3.index), out_stream)
+	index := index + 1
+
+    call close@(out_stream)
+
+    return 0i
+
+
+# {Edge} routines
+
+routine create@Edge
+    takes point1 Point
+    takes point2 Point
+    returns Edge
+
+    edge :@= new@Edge()
+    index1 :@= point1.index
+    index2 :@= point2.index
+    if index1 < index2
+	edge.point1 := point1
+	edge.point2 := point2
+    else_if index1 > index2
+	edge.point1 := point2
+	edge.point2 := point1
+    else
+	assert 0f
+    return edge
+
+
+routine compare@Edge
+    takes edge1 Edge
+    takes edge2 Edge
+    returns Integer
+
+    result :@= compare@(edge1.point1.index, edge2.point1.index)
+    if result = 0i
+	result := compare@(edge1.point2.index, edge2.point2.index)
+    return result
+
+
+# {Point} routines:
+
+routine create@Point
+    takes x Double
+    takes y Double
+    takes z Double
+    takes index Unsigned
+    returns Point
+
+    point :@= new@Point()
+    point.x := x
+    point.y := y
+    point.z := z
+    point.index := index
+    point.triangles := new@Array[Triangle]()
+    return point
+
+
+routine f@Point
+    takes point Point
+    returns String
+
+    show_index :@= 0f
+    show_value :@= 0f
+    show_triangles :@= 0f
+    value :@= field_next@Format()
+    size :@= value.size
+    index :@= 0
+    while index < size
+	character :@= value[index]
+	switch character
+	  case '%'
+	    do_nothing
+	  case 'i'
+	    show_index := 1t
+	  case 'p'
+	    show_index := 1t
+	  case 't'
+	    show_triangles := 1t
+	  case 'v'
+	    show_value := 1t
+	  default
+	    call d@(form@("Unrecognized format Triangle character %v%\n\") /
+	      f@(character))
+	    assert 0f
+	index := index + 1
+    call trim@(value, 0)
+    
+    if point == null@Point
+	call string_append@(value, "-")
+    else
+	if show_index
+	    call string_append@(value, form@("P%d%") / f@(point.index))
+	if show_value
+	    call string_append@(value, form@("(%f% %f% %f%)") %
+	      f@(point.x) % f@(point.y) / f@(point.z))
+	if show_triangles
+	    triangles :@= point.triangles
+	    separator :@= '['
+	    size := triangles.size
+	    index := 0
+	    while index < size
+		triangle :@= triangles[index]
+		call character_append@(value, separator)
+		separator := ' '
+		call string_append@(value, form@("%i%") / f@(triangle))
+		index := index + 1
+	    call character_append@(value, ']')
+    return value
+
+
+routine triangle_append@Point
+    takes point Point
+    takes triangle Triangle
+    returns_nothing
+
+    call append@(point.triangles, triangle)
+
+
+# {String} routines:
+
+routine double_lop@String
+    takes text String
+    returns Double
+
+    numerator :@= 0.0
+    denominator :@= 1.0
+    decimal_seen :@= 0f
+
+    # Remove preceeding white space:
+    while text.size != 0 && is_white_space@(text[0])
+	call lop@(text)
+
+    while text.size != 0
+	character :@= text[0]
+	if character = '-'
+	    denominator := -1.0
+	else_if character = '.'
+	    decimal_seen := 1t
+	else_if is_decimal_digit@(character)
+	    numerator := numerator * 10.0 + double@(decimal_convert@(character))
+	    if decimal_seen
+		denominator := denominator * 10.0
+	else
+	    break
+	call lop@(text)
+    return numerator / denominator
+
+
+
+routine unsigned_lop@String
+    takes text String
+    returns Unsigned
+
+    # This routine will remove an unsigned number form {text}.
+
+    # Remove preceeding white space:
+    while text.size != 0 && is_white_space@(text[0])
+	call lop@(text)
+
+    number :@= 0
+    while text.size != 0 && is_decimal_digit@(text[0])
+	number := number * 10 + decimal_convert@(lop@(text))
+
+    return number
+
+# {Triangle} routines:
+
+routine create@Triangle
+    takes point1 Point
+    takes point2 Point
+    takes point3 Point
+    takes index Unsigned
+    returns Triangle
+
+    # Compute the normal:
+    x1 :@= point1.x
+    y1 :@= point1.y
+    z1 :@= point1.z
+    x2 :@= point2.x
+    y2 :@= point2.y
+    z2 :@= point2.z
+    x3 :@= point3.x
+    y3 :@= point3.y
+    z3 :@= point3.z
+
+    dx12 :@= x1 - x2
+    dy12 :@= y1 - y2
+    dz12 :@= z1 - z2
+    dx32 :@= x3 - x2
+    dy32 :@= y3 - y2
+    dz32 :@= z3 - z2
+
+    cross_x :@= dy32 * dz12 - dz32 * dy12
+    cross_y :@= dz32 * dx12 - dx32 * dz12
+    cross_z :@= dx32 * dy12 - dy32 * dx12
+    length :@=
+      square_root@(cross_x * cross_x + cross_y * cross_y + cross_z * cross_z)
+    nx :@= cross_x / length
+    ny :@= cross_y / length
+    nz :@= cross_z / length
+
+    # Create and fill in fields of {triangle}:
+    null :@= null@Triangle
+    triangle :@= new@Triangle()
+    triangle.index := index
+    triangle.mark := 0
+    triangle.nx := nx
+    triangle.ny := ny
+    triangle.nz := nz
+    triangle.point1 := point1
+    triangle.point2 := point2
+    triangle.point3 := point3
+    triangle.triangle12 := null
+    triangle.triangle13 := null
+    triangle.triangle23 := null
+
+    # Record {triangle} with each associated {point1}, {point2}, and {point3}:
+    call triangle_append@(point1, triangle)
+    call triangle_append@(point2, triangle)
+    call triangle_append@(point3, triangle)
+
+    return triangle
+    
+
+routine f@Triangle
+    takes triangle Triangle
+    returns String
+
+    show_index :@= 0f
+    show_normal :@= 0f
+    show_point :@= 0f
+    show_shared_edges :@= 0f
+    value :@= field_next@Format()
+    size :@= value.size
+    index :@= 0
+    while index < size
+	character :@= value[index]
+	switch character
+	  case '%'
+	    do_nothing
+	  case 'i'
+	    show_index := 1t
+	  case 'n'
+	    show_normal := 1t
+	  case 'p'
+	    show_point := 1t
+	  case 's'
+	    show_shared_edges := 1t
+	  case 't'
+	    show_index := 1t
+          default
+	    call d@(form@("Unrecognized format Triangle character %v%\n\") /
+	      f@(character))
+	    assert 0f
+	index := index + 1
+    call trim@(value, 0)
+
+    point1 :@= triangle.point1
+    point2 :@= triangle.point2
+    point3 :@= triangle.point3
+
+    null :@= null@Triangle
+    if triangle == null
+	if show_index
+	    call string_append@(value, " -")
+	call string_append@(value, form@(" T%d%") / f@(point1.index))
+	if show_normal
+	    call string_append@(value, " -")
+	if show_point
+	    call string_append@(value, " -")
+	if show_shared_edges
+	    call string_append@(value, " -")
+    else
+	if show_index
+	    call string_append@(value, form@("T%d%") / f@(triangle.index))
+	if show_normal
+	    call string_append@(value, form@("T%d%:n(%f%:%f%:%f%") %
+	      f@(triangle.index) % f@(triangle.nx) % f@(triangle.ny) /
+	      f@(triangle.nz))
+	if show_point
+	    call string_append@(value,
+	      form@("T%d%:(%i%:%i%:%i%)") % f@(triangle.index) %
+	      f@(triangle.point1) % f@(triangle.point2) / f@(triangle.point3))
+
+    if show_shared_edges
+	triangle12 :@= triangle.triangle12
+	triangle13 :@= triangle.triangle13
+	triangle23 :@= triangle.triangle23
+	call character_append@(value, '[')
+	if triangle12 == null
+	    call character_append@(value, '-')
+	else
+	    call string_append@(value, form@("%d%") / f@(triangle12.index))
+	call character_append@(value, ' ')
+	if triangle13 == null
+	    call character_append@(value, '-')
+	else
+	    call string_append@(value, form@("%d%") / f@(triangle13.index))
+	call character_append@(value, ' ')
+	if triangle23 == null
+	    call character_append@(value, '-')
+	else
+	    call string_append@(value, form@("%d%") / f@(triangle23.index))
+	call character_append@(value, ']')
+
+    return value
+    
+
+routine consistent_force@Triangle
+    takes triangle Triangle
+    takes mark Unsigned
+    takes indent Unsigned
+    returns_nothing
+
+
+    if triangle.mark != mark
+	trace :@= indent < 0x80000000
+	if trace
+	    call d@(form@("%p%=>force(%d% %i% %s%)\n\") %
+	      f@(indent) % f@(triangle.index) % f@(triangle) / f@(triangle))
+	indent1 :@= indent + 1
+
+	triangle.mark := mark
+	point1 :@= triangle.point1
+	point2 :@= triangle.point2
+	point3 :@= triangle.point3
+	triangle12 :@= triangle.triangle12
+	triangle13 :@= triangle.triangle13
+	triangle23 :@= triangle.triangle23
+	null :@= null@Triangle
+
+	if is_clockwise@(triangle, point1, point2)
+	    if trace
+		call d@(form@("%p%P%i%=>P%i% is CW in T[%d%]\n\") %
+		  f@(indent1) % f@(point1) % f@(point2) / f@(triangle.index))
+	    if triangle12 !== null && is_clockwise@(triangle12, point1, point2)
+		if trace
+		    call d@(form@("%p%P%i%=>P%i% is CW in T[%d%]; swap\n\") %
+		  f@(indent1) % f@(point2) % f@(point1) / f@(triangle12.index))
+		call reverse@(triangle12)
+	    if triangle23 !== null && is_clockwise@(triangle23, point2, point3)
+		if trace
+		    call d@(form@("%p%P%i%=>P%i% is CW in T[%d%]; swap\n\") %
+		  f@(indent1) % f@(point2) % f@(point3) / f@(triangle23.index))
+		call reverse@(triangle23)
+	    if triangle13 !== null && is_clockwise@(triangle13, point3, point1)
+		if trace
+		    call d@(form@("%p%P%i%=>P%i% is CW in T[%d%]; swap\n\") %
+		  f@(indent1) % f@(point3) % f@(point1) / f@(triangle13.index))
+		call reverse@(triangle13)
+	else
+	    if trace
+		call d@(form@("%p%P%i%=>P%i% is CCW in T[%d%]\n\") %
+		  f@(indent1) % f@(point1) % f@(point2) / f@(triangle.index))
+	    if triangle12 !== null && !is_clockwise@(triangle12, point1, point2)
+		if trace
+		    call d@(form@("%p%P%i%=>P%i% is CCW in T[%d%]; swap\n\") %
+		  f@(indent1) % f@(point1) % f@(point2) / f@(triangle12.index))
+		call reverse@(triangle12)
+	    if triangle23 !== null && !is_clockwise@(triangle23, point2, point3)
+		if trace
+		    call d@(form@("%p%P%i%=>P%i% is CCW in T[%d%]; swap\n\") %
+		  f@(indent1) % f@(point2) % f@(point3) / f@(triangle23.index))
+		call reverse@(triangle23)
+	    if triangle13 !== null && !is_clockwise@(triangle13, point3, point1)
+		if trace
+		    call d@(form@("%p%P%i%=>P%i% is CCW in T[%d%]; swap\n\") %
+		  f@(indent1) % f@(point3) % f@(point1) / f@(triangle13.index))
+		call reverse@(triangle13)
+	call consistent_force@(triangle12, mark, indent1)
+	call consistent_force@(triangle23, mark, indent1)
+	call consistent_force@(triangle13, mark, indent1)
+
+	if trace
+	    call d@(form@("%p%<=force(%d%)\n\") %
+	      f@(indent) / f@(triangle.index))
+	
+
+routine has_point@Triangle
+    takes triangle Triangle
+    takes point Point
+    returns Logical
+
+    return triangle.point1 == point ||
+      triangle.point2 == point || triangle.point3 == point
+
+
+routine is_clockwise@Triangle
+    takes triangle Triangle
+    takes point1 Point
+    takes point2 Point
+    returns Logical
+
+    result :@= 0f
+    triangle_point1 :@= triangle.point1
+    triangle_point2 :@= triangle.point2
+    triangle_point3 :@= triangle.point3
+    if triangle_point1 == point1
+	result := triangle_point2 == point2
+    else_if triangle_point2 == point1
+	result := triangle_point3 == point2
+    else_if triangle_point3 == point1
+	result := triangle_point1 == point2
+    else
+	call d@(form@("=>is_cw@Triangle(%v%:%v%:%v%, %v%, %v%)\n\") %
+	  f@(triangle_point1) % f@(triangle_point2) % f@(triangle_point3) %
+	  f@(point1) / f@(point2))
+    return result
+
+
+routine edge_shared@Triangle
+    takes triangle1 Triangle
+    takes triangle2 Triangle
+    returns Logical
+
+    # This routine will {true@Logical} if {triangle1} and {trangle2} share an edge
+    # and {false@Logical} otherwise.
+
+    t1p1 :@= triangle1.point1
+    t1p2 :@= triangle1.point2
+    t1p3 :@= triangle1.point3
+    t2p1 :@= triangle2.point1
+    t2p2 :@= triangle2.point2
+    t2p3 :@= triangle2.point3
+
+    t1p1_shared :@= t1p1 == t2p1 || t1p1 == t2p2 || t1p1 == t2p3
+    t1p2_shared :@= t1p2 == t2p1 || t1p2 == t2p2 || t1p2 == t2p3
+    t1p3_shared :@= t1p3 == t2p1 || t1p3 == t2p2 || t1p3 == t2p3
+
+    return t1p1_shared && t1p2_shared && !t1p3_shared ||
+      t1p1_shared && !t1p2_shared && t1p3_shared ||
+      !t1p1_shared && t1p2_shared && t1p3_shared
+      
+
+routine is_complete@Triangle
+    takes triangle Triangle
+    returns Logical
+
+    triangle12 :@= triangle.triangle12
+    triangle13 :@= triangle.triangle13
+    triangle23 :@= triangle.triangle23
+    null :@= null@Triangle
+
+    return triangle12 !== null && triangle13 !== null && triangle23 !== null &&
+      edge_shared@(triangle, triangle12) &&
+      edge_shared@(triangle, triangle13) &&
+      edge_shared@(triangle, triangle23)
+
+
+routine neighbors_find@Triangle
+    takes triangle Triangle
+    returns_nothing
+
+    # This routine will find the three triangles that neighbor {triangle}.
+
+    point1 :@= triangle.point1
+    point2 :@= triangle.point2
+    point3 :@= triangle.point3
+
+    triangle.triangle12 := other_find@(triangle, point1, point2)
+    triangle.triangle13 := other_find@(triangle, point1, point3)
+    triangle.triangle23 := other_find@(triangle, point2, point3)
+
+
+routine other_find@Triangle
+    takes parent_triangle Triangle
+    takes point1 Point
+    takes point2 Point
+    returns Triangle
+
+    # This routine will return a triangle that is attached attached to both
+    # {point1} and {point2} but is not {triangle}.  If no triangle is found,
+    # {null@Triangle} is returned.
+
+    null :@= null@Triangle
+    triangle :@= null
+
+    # Search through the triangles associated with {point1}:
+    triangles :@= point1.triangles
+    size :@= triangles.size
+    index :@= 0
+    while index < size
+	triangle := triangles[index]
+	if triangle !== triangle && has_point@(triangle, point2)
+	    return triangle
+	index := index + 1
+
+    # Search through the triangles associated with {point1}:
+    triangles := point2.triangles
+    index := 0
+    size := triangles.size
+    while index < size
+	triangle := triangles[index]
+	if triangle !== parent_triangle && has_point@(triangle, point1)
+	    return triangle
+	index := index + 1
+
+    # We failed:
+    call d@(form@("other_find@(%i%, %i%, %i%) failed:\n\") %
+      f@(parent_triangle) % f@(point1) / f@(point2))
+
+    call d@(form@("  %i%:\n\") / f@(point1))
+    triangles := point1.triangles
+    size := triangles.size
+    index := 0
+    while index < size
+	triangle := triangles[index]
+	call d@(form@("    [%d%] %p%)\n\") % f@(index)/ f@(triangle))
+	index := index + 1
+
+    call d@(form@("  %i%:\n\") / f@(point2))
+    triangles := point2.triangles
+    size := triangles.size
+    index := 0
+    while index < size
+	triangle := triangles[index]
+	call d@(form@("    [%d%] %p%)\n\") % f@(index)/ f@(triangle))
+	index := index + 1
+
+    return null@Triangle
+
+
+routine reverse@Triangle
+    takes triangle Triangle
+    returns_nothing
+
+    reverses :@= triangle.reverses
+    #assert reverses = 0
+    triangle.reverses := reverses + 1
+
+    point2 :@= triangle.point2
+    point3 :@= triangle.point3
+    triangle.point2 := point3
+    triangle.point3 := point2
+
+    triangle12 :@= triangle.triangle12
+    triangle13 :@= triangle.triangle13
+    triangle.triangle12 := triangle13
+    triangle.triangle13 := triangle12
+
+    triangle.nx := -triangle.nx
+    triangle.ny := -triangle.ny
+    triangle.nz := -triangle.nz
+
