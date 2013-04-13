@@ -32,7 +32,8 @@ EZCAD_TAR_FILES := 		\
     update.sh			\
     update_helper.sh
 
-all: ${PROGRAMS} EZCAD.tar.gz
+#all: ${PROGRAMS} EZCAD.tar.gz
+all: EZCAD_XML EZCAD.tar.gz
 
 $(LIB_EZCAD): EZCAD.ezc off_fixup
 	$(EZCC) -I ../ogls EZCAD

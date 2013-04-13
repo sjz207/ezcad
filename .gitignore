@@ -41,7 +41,6 @@ part.txt
 
 # Python projects to ignore:
 backing_plate.py
-demo?.py
 drawbar.py
 drawbar_stand.py
 gm3_mount_side.py
