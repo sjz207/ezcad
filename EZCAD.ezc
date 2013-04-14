@@ -1227,6 +1227,8 @@ routine wrl_write@Assembly
     indent3 :@= indent + 3
     indent4 :@= indent + 4
 
+    assert assembly !== null@Assembly
+
     wrl_marker :@= assembly.wrl_marker
     if marker = wrl_marker
 	# We have already output the assembly:
@@ -9341,7 +9343,8 @@ routine dowel_pin@Part
     if part.cnc_generate
 	tool_dowel_pin :@= tools_dowel_pin_search@(part)
 
-	debug :@= 1t
+	debug :@= 0f
+	#debug := 1t
 	#debug := equal@(part.name, "Tine_Block")
 	if debug
 	    call d@(form@("=>dowel_pin@Part(%v%, %v%)\n\") %
@@ -9661,8 +9664,10 @@ routine flush_helper@Part
     # This routine will generate the code for the operations from
     # {first_index} through {last_index} in {part}.
 
-    call d@(form@("=>flush_helper@Shop(*, %d%, %d%)\n\") %
-      f@(first_index) / f@(last_index))
+    debug :@= 0f
+    if debug
+	call d@(form@("=>flush_helper@Shop(*, %d%, %d%)\n\") %
+	  f@(first_index) / f@(last_index))
 
     zero :@= in@(0.0)
 
@@ -9736,8 +9741,9 @@ routine flush_helper@Part
 		# Move the matching operation to be next after {operation}
 		# in operations:
 		if match_index != 0xffffffff
-		    call d@(form@("minimum_distance[%d%]=%i%\n\") %
-		      f@(index) / f@(minimum_distance))
+		    if debug
+			call d@(form@("minimum_distance[%d%]=%i%\n\") %
+			  f@(index) / f@(minimum_distance))
 		    match_operation :@= operations[match_index]
 		    operations[match_index] := operations[index + 1]
 		    operations[index + 1] := match_operation
@@ -9783,8 +9789,9 @@ routine flush_helper@Part
 	index := index + 1
 
     call z_safe_retract_actual@(code)
-    call d@(form@("<=flush_helper@Shop(*, %d%, %d%): Block=#%d%\n\") %
-      f@(first_index) % f@(last_index) / f@(block.uid))
+    if debug
+	call d@(form@("<=flush_helper@Shop(*, %d%, %d%): Block=#%d%\n\") %
+	  f@(first_index) % f@(last_index) / f@(block.uid))
 
     code.dxf_x_offset := zero
     code.dxf_y_offset := zero
@@ -13922,7 +13929,8 @@ routine xml_read@Part
 	    # <Vice_Position TX= TY= TZ= NX= NY= NZ= WX= WY= WZ= CX= CY= CZ= />:
 	    assert !xml_tag_end@(xml_stream, 1t)
 	    call line_number_increment@(ezcad)
-	    debug :@= 1t
+	    debug :@= 0t
+	    #debug := 1t
 	    #if equal@(part.name, "Tine_Tang")
 	    #	debug := 1t
 

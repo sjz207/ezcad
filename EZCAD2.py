@@ -151,23 +151,26 @@ class EZCAD2:
     """ EZCAD is the top level engine that executes the design. """
 
     def __init__(self, major, minor):
-	""" EZCAD: Initialize the contents of {self} to contain
+	""" {EZCAD}: Initialize the contents of {self} to contain
 	    {major} and {minor} version numbers. """
+
+	#print "EZCAD.__init__() called"
 
 	# Check argument types:
 	assert major == 1
 	assert minor == 0
 
-	self.major = major
-	self.minor = minor
-	self.parts_stack = []
-	#self.root = Part("", None, self)
-	self.xml_stream = None
+	# Load up {self}:
+	self._major = major
+	self._minor = minor
+	self._parts_stack = []
+	self._xml_indent = 0
+	self._xml_stream = None
 
     def construct_mode(self):
 	""" EZCAD: Return {True} if {self} is in construct mode. """
 
-	return self.mode >= EZCAD.CONSTRUCT_MODE
+	return self.mode >= EZCAD2.CONSTRUCT_MODE
 
 
     def dimensions_changed(self, called_from):
@@ -249,7 +252,7 @@ class EZCAD2:
 	assert xml_stream != None, \
 	  "Unable to open XML output file '%s'" % (xml_file_name)
 	ezcad.xml_stream = xml_stream
-	ezcad.xml_indent = ""
+	ezcad._xml_indent = ""
 
 	# Write the top level <EZCAD ...> line:
 	version = 4
@@ -265,7 +268,7 @@ class EZCAD2:
 
 	# Close the XML Stream.
 	ezcad.xml_indent_pop()
-	assert ezcad.xml_indent == "", \
+	assert ezcad._xml_indent == 0, \
 	  "XML indentaion bracketing failure"
 
 	xml_stream.write("</EZCAD>\n")
@@ -279,21 +282,18 @@ class EZCAD2:
 	  "Error running 'EZCAD_XML {0}'".format(xml_file_name)
 
     def xml_indent_pop(self):
-	""" EZCAD: Decrease the XML indentation and return it."""
+	""" {EZCAD}: Decrease the XML indentation and return it."""
 
-	xml_indent = self.xml_indent
-	size = len(xml_indent)
-	self.xml_indent = xml_indent[0: size -1]
-	return xml_indent
+	xml_indent = self._xml_indent
+	assert xml_indent > 0, "Indentation error"
+	self._xml_indent = xml_indent - 1
+
 
     def xml_indent_push(self):
-	""" EZCAD: Increase the XML indentation and return the new
+	""" {EZCAD}: Increase the XML indentation and return the new
 	    inendation level.  """
 
-	xml_indent = self.xml_indent + " "
-	self.xml_indent = xml_indent
-	return xml_indent
-
+	self._xml_indent += 1
 
 class Length:
     """ A {Length} represents a length. """
@@ -511,6 +511,8 @@ class Part:
     """ A {Part} specifies either an assembly of parts or a single
 	physical part. """
 
+    EZCAD = EZCAD2(1, 0)
+
     # Flavors of values that can be stored in a {Part}:
     def __init__(self, name, parent):
 
@@ -548,9 +550,11 @@ class Part:
 	self._angles = {}
 	self._children = children
 	self._corners = []
-	self._ezcad = None
+	self._ezcad = Part.EZCAD
 	self._name = name
 	self._origin = None
+	self._material = "None"
+	self._transparency = 1.0
 	self._parent = parent
 	self._parts = {}
 	self._points = points
@@ -563,10 +567,69 @@ class Part:
 	self._transparency = 0.0
 	self._top_surface = None
 	self._top_surface_set = False
+	self._xml_lines = []
 
 	if parent == None:
 	    zero = Length.inch(0.0)
 	    self._origin_set(Point(self, zero, zero, zero))
+
+    def _bounding_box_update(self, w, s, b, e, n, t):
+	""" {Part} internal: Update the bounding box for {self} to have
+	    corners of ({w}, {s}, {b}) and ({e}, {n}, {t}). """
+
+	# Check argument types:
+	assert isinstance(w, Length)
+	assert isinstance(s, Length)
+	assert isinstance(b, Length)
+	assert isinstance(e, Length)
+	assert isinstance(n, Length)
+	assert isinstance(t, Length)
+	assert w < e, "w={0} should be less than e={1}".format(w, e)
+	assert s < n, "s={0} should be less than n={1}".format(s, n)
+	assert b < t, "b={0} should be less than t={1}".format(b, t)
+
+	# Compute the mid-point values for east-west, north-south and
+	# top-bottom:
+	ew2 = (e + w).half()
+	ns2 = (n + s).half()
+	tb2 = (t + b).half()
+
+	# Install 6 bounding box surface {Point}'s:
+	self.b = self.point_new(ew2, ns2,   b)
+	self.e = self.point_new(  e, ns2, tb2)
+	self.n = self.point_new(ew2,   n, tb2)
+	self.s = self.point_new(ew2,   s, tb2)
+	self.t = self.point_new(ew2, ns2,   t)
+	self.w = self.point_new(  w, ns2, tb2)
+
+	# Install 12 bounding box edge {Point}'s into {points}:
+	self.be = self.point_new(  e, ns2,   b)
+	self.bn = self.point_new(ew2,   n,   b)
+	self.bs = self.point_new(ew2,   s,   b)
+	self.bw = self.point_new(  w, ns2,   b)
+	self.ne = self.point_new(  e,   n, tb2)
+	self.nw = self.point_new(  w,   n, tb2)
+	self.se = self.point_new(  e,   s, tb2)
+	self.sw = self.point_new(  w,   s, tb2)
+	self.te = self.point_new(  e, ns2,   t)
+	self.tn = self.point_new(ew2,   n,   t)
+	self.ts = self.point_new(ew2,   s,   t)
+	self.tw = self.point_new(  w, ns2,   t)
+
+	# Install 8 bounding box corner {Point}'s into {points}:
+	self.bne = self.point_new(e, n, b)
+	self.bnw = self.point_new(w, n, b)
+	self.bse = self.point_new(e, s, b)
+	self.bsw = self.point_new(w, s, b)
+	self.tne = self.point_new(e, n, t)
+	self.tnw = self.point_new(w, n, t)
+	self.tse = self.point_new(e, s, t)
+	self.tsw = self.point_new(w, s, t)
+
+	# Install the bounding box origin:
+	self.o = self.point_new(ew2, ns2, tb2)
+
+	#print "<=Part.bouinding_box_update('%s')" % (self.name)
 
     def origin_set(self, origin):
 	""" Part: This method will recursively set the origin of *self*
@@ -583,7 +646,6 @@ class Part:
 	    child._origin_set(origin)
 
     def __getitem__(self, path):
-
 
 	# Check argument types:
 	assert isinstance(path, str)
@@ -614,8 +676,7 @@ class Part:
 	  "No dimensions() method defined for part '{0}'".format(self._name)
 
     def process(self):
-	""" Part: Generate the XML control file for *self*. """
-	# Generate the XML file f
+	""" {Part}: Generate the XML control file for *self*. """
 
 	# Do the dimensions propogate phase:
 	changed = 1
@@ -628,23 +689,22 @@ class Part:
 	assert xml_stream != None, \
 	  "Unable to open XML output file '%s'" % (xml_file_name)
 
-	# Create the *excad* object:
-	ezcad = EZCAD2(1, 0)
-	ezcad.xml_stream = xml_stream
-	ezcad.xml_indent = ""
+	# Prepare the {ezcad} object for generating XML file:
+	ezcad = self._ezcad
+	ezcad._xml_stream = xml_stream
 
 	# Write the top level <EZCAD ...> line:
 	version = 4
 	xml_stream.write('<EZCAD Major="{0}" Minor="{1}" Version="{2}">\n'. \
-	  format(ezcad.major, ezcad.minor, version))
+	  format(ezcad._major, ezcad._minor, version))
 	ezcad.xml_indent_push()
 
 	# Now visit *self* and all of its children:
-	self._manufacture(ezcad, xml_stream, 1)
+	self._manufacture()
 
 	# Close the XML Stream.
 	ezcad.xml_indent_pop()
-	assert ezcad.xml_indent == "", \
+	assert ezcad._xml_indent == 0, \
 	  "XML indentaion bracketing failure"
 	xml_stream.write("</EZCAD>\n")
 	xml_stream.close()
@@ -667,6 +727,9 @@ class Part:
 	for child in self._children:
 	    changed += child._dimensions_update(trace + 1)
 	
+	# Clear out any previous {_xml_lines} and {_places}:
+	del self._xml_lines[:]
+
 	# Generate a list of the *before* values for *self*:
 	attribute_names = dir(self)
 	before_values = {}
@@ -712,36 +775,36 @@ class Part:
 	    from {vice_position}() trim the 4 corners with a radius of
 	    {corner_radius}. """
 
-	if self.construct_mode():
-            # Grab all six surfaces:
-	    points = self.points
+	print "=>Part.boundary_trim({0}, '{1}', {2}, '{3}')". \
+	  format(self._name, comment, corner_radius, flags)
 
+	if True:
 	    # Grab the 6 surfaces:
-	    t = points["$T"]
-	    b = points["$B"]
-	    n = points["$N"]
-	    s = points["$S"]
-	    e = points["$E"]
-	    w = points["$W"]
+	    t = self.t
+	    b = self.b
+	    n = self.n
+	    s = self.s
+	    e = self.e
+	    w = self.w
 
 	    # Grab the 8 corners:
-	    tne = points["$TNE"]
-	    tnw = points["$TNW"]
-	    tse = points["$TSE"]
-	    tsw = points["$TSW"]
-	    bne = points["$BNE"]
-	    bnw = points["$BNW"]
-	    bse = points["$BSE"]
-	    bsw = points["$BSW"]
+	    tne = self.tne
+	    tnw = self.tnw
+	    tse = self.tse
+	    tsw = self.tsw
+	    bne = self.bne
+	    bnw = self.bnw
+	    bse = self.bse
+	    bsw = self.bsw
 
 	    # Compute {x_extra}, {y_extra}, {z_extra}:
-	    x_extra = (w.x - points["$XW"].x).maximum(points["$XE"].x - e.x)
-	    y_extra = (s.y - points["$XS"].y).maximum(points["$XN"].y - n.y)
-	    z_extra = (b.z - points["$XB"].z).maximum(points["$XT"].z - t.z)
+	    x_extra = (w.x - self.xw.x).maximum(self.xe.x - e.x)
+	    y_extra = (s.y - self.xs.y).maximum(self.xn.y - n.y)
+	    z_extra = (b.z - self.xb.z).maximum(self.xt.z - t.z)
 
-	    assert self.top_surface_set, \
-	      "Top surface for part {0} is not set".format(self.name)
-	    top_surface = self.top_surface
+	    assert self._top_surface_set, \
+	      "Top surface for part '{0}' is not set".format(self._name)
+	    top_surface = self._top_surface
 	    if top_surface == t:
 		# Top surface:
 		self.corner(comment + ":TNW", tnw, corner_radius)
@@ -795,61 +858,19 @@ class Part:
 		  "Top surface for {0} is {1} which is not $N/$S/$E/$W/$T/$B". \
 		  format(self.name, top_surface)
 
-    def bounding_box_update(self, w, s, b, e, n, t):
-	""" Part internal: Update the bounding box for {self}. """
-
-	# Compute the mid-point values for east-west, north-south and
-	# top-bottom:
-	ew2 = (e + w) / 2.0
-	ns2 = (n + s) / 2.0
-	tb2 = (t + b) / 2.0
-
-	# Install 6 bounding box surface {Point}'s into {points}:
-	self.point_set("$B", self.point_new(ew2, ns2,   b))
-	self.point_set("$E", self.point_new(  e, ns2, tb2))
-	self.point_set("$N", self.point_new(ew2,   n, tb2))
-	self.point_set("$S", self.point_new(ew2,   s, tb2))
-	self.point_set("$T", self.point_new(ew2, ns2,   t))
-	self.point_set("$W", self.point_new(  w, ns2, tb2))
-
-	# Install 12 bounding box edge {Point}'s into {points}:
-	self.point_set("$BE", self.point_new(  e, ns2,   b))
-	self.point_set("$BN", self.point_new(ew2,   n,   b))
-	self.point_set("$BS", self.point_new(ew2,   s,   b))
-	self.point_set("$BW", self.point_new(  w, ns2,   b))
-	self.point_set("$NE", self.point_new(  e,   n, tb2))
-	self.point_set("$NW", self.point_new(  w,   n, tb2))
-	self.point_set("$SE", self.point_new(  e,   s, tb2))
-	self.point_set("$SW", self.point_new(  w,   s, tb2))
-	self.point_set("$TE", self.point_new(  e, ns2,   t))
-	self.point_set("$TN", self.point_new(ew2,   n,   t))
-	self.point_set("$TS", self.point_new(ew2,   s,   t))
-	self.point_set("$TW", self.point_new(  w, ns2,   t))
-
-	# Install 8 bounding box corner {Point}'s into {points}:
-	self.point_set("$BNE", self.point_new(e, n, b))
-	self.point_set("$BNW", self.point_new(w, n, b))
-	self.point_set("$BSE", self.point_new(e, s, b))
-	self.point_set("$BSW", self.point_new(w, s, b))
-	self.point_set("$TNE", self.point_new(e, n, t))
-	self.point_set("$TNW", self.point_new(w, n, t))
-	self.point_set("$TSE", self.point_new(e, s, t))
-	self.point_set("$TSW", self.point_new(w, s, t))
-
-	# Install bounding box diagonal {Point} into {points}:
-	self.point_set("$D", self.point_new(e - w, n - s, t - b))
-	self.point_set("$C", \
-	  self.point_new((e + w).half(), (n + s).half(), (t + b).half()))
-
-	#print "<=Part.bouinding_box_update('%s')" % (self.name)
-
     def block_corners(self, corner1, corner2, color, material):
-	""" Part construct: Create a block with corners at {corner1} and
+	""" {Part} construct: Create a block with corners at {corner1} and
 	    {corner2}.  The block is made of {material} and visualized as
 	    {color}. """
 
 	#print "block_corners('{0}', {1}, {2}, '{3}', '{4}')".format( \
 	#  self.name, corner1, corner2, color, material)
+
+	# Check argument types:
+	assert isinstance(corner1, Point)
+	assert isinstance(corner2, Point)
+	assert isinstance(color, str)
+	assert isinstance(material, str)
 
 	# Make sure that the corners are diagonal from bottom south west
 	# to top north east:
@@ -860,38 +881,24 @@ class Part:
 	z1 = min(corner1.z, corner2.z)
 	z2 = max(corner1.z, corner2.z)
 
+	assert x1 < x2, "x1={0} should be less than x2={1}".format(x1, x2)
+	assert y1 < y2, "y1={0} should be less than y2={1}".format(y1, y2)
+	assert z1 < z2, "xz={0} should be less than z2={1}".format(z1, z2)
+
 	#print "c1=({0},{1},{2}) c2=({3},{4},{5})".format( \
 	#  x1, y1, z1, x2, y2, z2)
 
-	# Record the the corner in {self}:
-	self.point_xyz_set("block_corner_bsw", x1, y1, z1)
-	self.point_xyz_set("block_corner_tne", x2, y2, z2)
+	self._bounding_box_update(x1, y1, z1, x2, y2, z2)
 
 	# Record the material:
-	self.material = material
-
-	if self.dimensions_mode():
-	    self.bounding_box_update(x1, y1, z1, x2, y2, z2)
-
-	# In consturct mode, output the <Block ... /> line:
-	if self.construct_mode():
-	    self.extra_write()
-
-	    # Make sure that the {self} has volume:
-	    assert x2 > x1, "X dimension is zero"
-	    assert y2 > y1, "Y dimension is zero"
-	    assert z2 > z1, "Z dimension is zero"
-
-	    ezcad = self.ezcad
-	    xml_stream = ezcad.xml_stream
-	    xml_stream.write(
-	      '{0}<Block C1X="{1}" C1Y="{2}" C1Z="{3}"'. \
-	      format( ezcad.xml_indent, x1, y1, z1))
-	    xml_stream.write(' C2X="{0}" C2Y="{1}" C2Z="{2}"'. \
-	      format(x2, y2, z2))
-	    xml_stream.write(' Color="{0}" Transparency="{1}" Material="{2}"'. \
-	      format(color, self.transparency, material))
-	    xml_stream.write(' Comment="{0}"/>\n'.format(self.name))
+	self._material = material
+	self._color = color
+	self._xml_lines.append( ('<Block C1X="{0}" ' + \
+	  'C1Y="{1}" C1Z="{2}" C2X="{3}" C2Y="{4}" C2Z="{5}"' + \
+	  ' Color="{6}" Transparency="{7}" Material="{8}" Comment="{9}"/>'). \
+	  format(x1, y1, z1, x2, y2, z2,
+	  color, self._transparency, material, self._name))
+	print "Part.block_corners:_xml_lines={0}".format(self._xml_lines)
 
     def block_diagonal(self, diagonal, color, material):
 	""" Part construct: Turn {self} into a block centered on the origin
@@ -904,19 +911,20 @@ class Part:
 	self.block_corners(corner1, corner2, color, material)
 
     def chamfers(self, upper_chamfer, lower_chamfer):
-	""" Part construct: Set the chamfers for contours and simple
+	""" {Part} construct: Set the chamfers for contours and simple
 	    pockets.  {upper_chamfer} specifies the chamfer of the
 	    upper edge and the {lower_chamfer} specifies the chamer
 	    of the lower edge.  Zero disables the chamfer for the
 	    specified edge. """
 
-	# Extract some values from {ezcad}:
-	ezcad = self.ezcad
-	xml_indent = ezcad.xml_indent
-	xml_stream = ezcad.xml_stream
+	# Check argument types:
+	assert isinstance(upper_chamfer, Length)
+	assert isinstance(lower_chamfer, Length)
 
-	# Make sure we are in construct mode:
-	assert self.ezcad.construct_mode()
+	# Extract some values from {ezcad}:
+	ezcad = self._ezcad
+	xml_indent = ezcad._xml_indent
+	xml_stream = ezcad._xml_stream
 
 	# Output <Chamfers Upper= Lower= />:
 	xml_stream.write('{0}<Chamfers Upper="{1}" Lower="{2}"/>\n'. \
@@ -928,7 +936,7 @@ class Part:
 	if self.construct_mode():
 	    ezcad = self.ezcad
 	    ezcad.xml_stream.write('{0}<CNC_Flush />\n'. \
-	      format(ezcad.xml_indent))
+	      format(ezcad._xml_indent))
 
     def construct_mode(self):
 	""" Part dimensions: Return {True} if {self} should be constructed. """
@@ -952,17 +960,17 @@ class Part:
 	      format(flag, flags, self.name)
 
 	# Extract some values from {ezcad}:
-	ezcad = self.ezcad
-	xml_indent = ezcad.xml_indent
-	xml_stream = ezcad.xml_stream
+	ezcad = self._ezcad
+	xml_indent = ezcad._xml_indent
+	xml_stream = ezcad._xml_stream
 
 	# Make sure we are in construct mode:
-	assert self.ezcad.construct_mode(), \
-	  "Part.Contour: Called when Part {0} is not in consturct mode". \
-	  format(self.name)
+	#assert self.ezcad.construct_mode(), \
+	#  "Part.Contour: Called when Part {0} is not in consturct mode". \
+	#  format(self.name)
 
 	# Make sure we have some {corners} for the contour:
-	corners = self.corners
+	corners = self._corners
 	corners_size = len(corners)
 	assert corners_size >= 3, \
 	  "Part {0} only has {1} corners which is insufficient". \
@@ -970,19 +978,19 @@ class Part:
 
 	# Now figure out the desired order for {corners}.  Depending upon
 	# what {top_surface} is being used, we reverse the contour direction:
-	top_surface = self.top_surface
+	top_surface = self._top_surface
 	reverse = None
-	if top_surface == self.point("$E"):
+	if top_surface == self.e:
 	    reverse = False
-	elif top_surface == self.point("$W"):
+	elif top_surface == self.w:
 	    reverse = True
-	elif top_surface == self.point("$N"):
+	elif top_surface == self.n:
 	    reverse = False
-	elif top_surface == self.point("$S"):
+	elif top_surface == self.s:
 	    reverse = True
-	elif top_surface == self.point("$T"):
+	elif top_surface == self.t:
 	    reverse = False
-	elif top_surface == self.point("$B"):
+	elif top_surface == self.b:
 	    reverse = False
 	assert reverse != None, \
 	  "Part {0} top surface must be one of $T, $B, $N, $S, $E, or $W". \
@@ -991,13 +999,13 @@ class Part:
             corners.reverse()
 
 	# Now output {corners} and clear it for the next contour:
-	for corner in self.corners:
+	for corner in self._corners:
 	    xml_stream.write(corner)
-	self.corners = []
+	self._corners = []
 
 	# <Contour SX= SY= SZ= EX= EY= EZ= Extra= Flags= Comment= />:
 	xml_stream.write('{0}<Contour SX="{1}" SY="{2}" SZ="{3}"'. \
-	  format(xml_indent, start_point.x, start_point.y, start_point.z))
+	  format(" " * xml_indent, start_point.x, start_point.y, start_point.z))
 	xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'. \
 	  format(end_point.x, end_point.y, end_point.z))
 	xml_stream.write(' Extra="{0}" Flags="{1}" Comment="{2}"/>\n'. \
@@ -1006,7 +1014,7 @@ class Part:
     def contour_reverse(self):
 	""" """
 
-	self.corners.reverse()
+	self._corners.reverse()
 
     def corner(self, comment, corner_point, radius):
 	""" Part construct: Add a corner with a radius of {radius} to
@@ -1014,17 +1022,17 @@ class Part:
 	    {comment} will show up any error messages or generated G-code. """
 
 	# Extract some values from {ezcad}:
-	ezcad = self.ezcad
-	xml_indent = ezcad.xml_indent
-	xml_stream = ezcad.xml_stream
+	ezcad = self._ezcad
+	xml_indent = ezcad._xml_indent
+	xml_stream = ezcad._xml_stream
 
 	# Make sure we are in construct mode:
-	assert self.ezcad.construct_mode()
+	#assert self.ezcad.construct_mode()
 
 	corner_xml = ('{0}<Corner Radius="{1}" CX="{2}" CY="{3}" CZ="{4}"' + \
-	  ' Comment="{0}"/>\n').format(xml_indent, radius, corner_point.x, \
-	  corner_point.y, corner_point.z, comment)
-	self.corners.append(corner_xml)
+	  ' Comment="{5}"/>\n').format(" " * xml_indent,
+	  radius, corner_point.x, corner_point.y, corner_point.z, comment)
+	self._corners.append(corner_xml)
 
     def done(self):
 	""" Part (tree_mode): Mark {self} as done.  {self} is
@@ -1058,7 +1066,7 @@ class Part:
 	    ezcad = self.ezcad
 	    xml_stream = ezcad.xml_stream
 	    ezcad.xml_indent_pop()
-	    xml_stream.write("{0}</Part>\n".format(ezcad.xml_indent))
+	    xml_stream.write("{0}</Part>\n".format(ezcad._xml_indent))
 
 	#print "<=Part.done('%s')" % (self.name)
 	return self
@@ -1096,17 +1104,27 @@ class Part:
 	    xml_stream = ezcad.xml_stream
 	    xml_stream.write(
 	      '{0}<DXF_Place DX="{1}" DY="{2}" DXF_Name="{3}"/>\n'. \
-	      format(ezcad.xml_indent, x_offset, y_offset, dxf_name))
+	      format(ezcad._xml_indent, x_offset, y_offset, dxf_name))
 
     def extra_ewnstb(self, east, west, north, south, top, bottom):
-	""" Part dimensions: Update the extra bounding box for {self}. """
+	""" {Part} manufacture: Update the extra bounding box for {self}
+	    to be extended by {east} and {west} in the X axis, {north} and
+	    {south} in the Y axis, and {top} and {bottom} in the Z axis. """
 
 	#print "extra_ewnstb: e={0} w={1} n={2} s={3} t={4} b={5}". \
 	#  format(east, west, north, south, top, bottom)
 
+	# Arugment type checking:
+	assert isinstance(east, Length)
+	assert isinstance(west, Length)
+	assert isinstance(north, Length)
+	assert isinstance(south, Length)
+	assert isinstance(top, Length)
+	assert isinstance(bottom, Length)
+
 	# Look up {bsw} and {tne}, the bounding box corner {Point}'s:
-	bsw = self.point("$BSW")
-	tne = self.point("$TNE")
+	bsw = self.bsw
+	tne = self.tne
 
 	# Compute the dimensions of extra bounding box:
 	b = bsw.z - bottom
@@ -1118,71 +1136,63 @@ class Part:
 
 	# Compute the mid-point values for east-west, north-south and
 	# top-bottom:
-	ew2 = (e + w) / 2.0
-	ns2 = (n + s) / 2.0
-	tb2 = (t + b) / 2.0
+	ew2 = (e + w).half()
+	ns2 = (n + s).half()
+	tb2 = (t + b).half()
 
 	# Install 6 bounding box surface {Point}'s into {points}:
-	self.point_set("$XB", self.point_new(ew2, ns2,   b))
-	self.point_set("$XE", self.point_new(  e, ns2, tb2))
-	self.point_set("$XN", self.point_new(ew2,   n, tb2))
-	self.point_set("$XS", self.point_new(ew2,   s, tb2))
-	self.point_set("$XT", self.point_new(ew2, ns2,   t))
-	self.point_set("$XW", self.point_new(  w, ns2, tb2))
+	self.xb = self.point_new(ew2, ns2,   b)
+	self.xe = self.point_new(  e, ns2, tb2)
+	self.xn = self.point_new(ew2,   n, tb2)
+	self.xs = self.point_new(ew2,   s, tb2)
+	self.xt = self.point_new(ew2, ns2,   t)
+	self.xw = self.point_new(  w, ns2, tb2)
 
 	# Install 12 bounding box edge {Point}'s into {points}:
-	self.point_set("$XBE", self.point_new(  e, ns2,   b))
-	self.point_set("$XBN", self.point_new(ew2,   n,   b))
-	self.point_set("$XBS", self.point_new(ew2,   s,   b))
-	self.point_set("$XBW", self.point_new(  w, ns2,   b))
-	self.point_set("$XNE", self.point_new(  e,   n, tb2))
-	self.point_set("$XNW", self.point_new(  w,   n, tb2))
-	self.point_set("$XSE", self.point_new(  e,   s, tb2))
-	self.point_set("$XSW", self.point_new(  w,   s, tb2))
-	self.point_set("$XTE", self.point_new(  e, ns2,   t))
-	self.point_set("$XTN", self.point_new(ew2,   n,   t))
-	self.point_set("$XTS", self.point_new(ew2,   s,   t))
-	self.point_set("$XTW", self.point_new(  w, ns2,   t))
+	self.xbe = self.point_new(  e, ns2,   b)
+	self.xbn = self.point_new(ew2,   n,   b)
+	self.xbs = self.point_new(ew2,   s,   b)
+	self.xbw = self.point_new(  w, ns2,   b)
+	self.xne = self.point_new(  e,   n, tb2)
+	self.xnw = self.point_new(  w,   n, tb2)
+	self.xse = self.point_new(  e,   s, tb2)
+	self.xsw = self.point_new(  w,   s, tb2)
+	self.xte = self.point_new(  e, ns2,   t)
+	self.xtn = self.point_new(ew2,   n,   t)
+	self.xts = self.point_new(ew2,   s,   t)
+	self.xtw = self.point_new(  w, ns2,   t)
 
 	# Install 8 bounding box corner {Point}'s into {points}:
-	self.point_set("$XBNE", self.point_new(e, n, b))
-	self.point_set("$XBNW", self.point_new(w, n, b))
-	self.point_set("$XBSE", self.point_new(e, s, b))
-	self.point_set("$XBSW", self.point_new(w, s, b))
-	self.point_set("$XTNE", self.point_new(e, n, t))
-	self.point_set("$XTNW", self.point_new(w, n, t))
-	self.point_set("$XTSE", self.point_new(e, s, t))
-	self.point_set("$XTSW", self.point_new(w, s, t))
+	self.xbne = self.point_new(e, n, b)
+	self.xbnw = self.point_new(w, n, b)
+	self.xbse = self.point_new(e, s, b)
+	self.xbsw = self.point_new(w, s, b)
+	self.xtne = self.point_new(e, n, t)
+	self.xtnw = self.point_new(w, n, t)
+	self.xtse = self.point_new(e, s, t)
+	self.xtsw = self.point_new(w, s, t)
 
-	# Install bounding box diagonal {Point} into {points}:
-	self.point_set("$XD", self.point_new(e - w, n - s, t - b))
-
-    def extra_write(self):
-	""" Part internal: Write out the <Extra ... /> tag for {self}
-	    if necessary. """
-
-	if "$XBSW" in self.points:
-	    # We have an extra bounding box:
-	    xbsw = self.point("$XBSW")
-	    xtne = self.point("$XTNE")
-
-	    ezcad = self.ezcad
-	    xml_indent = ezcad.xml_indent
-	    xml_stream = ezcad.xml_stream
-	    xml_stream.write('{0}<Extra'.format(xml_indent))
-	    xml_stream.write(' C1X="{0}" C1Y="{1}" C1Z="{2}"'. \
-	      format(xbsw.x, xbsw.y, xbsw.z))
-	    xml_stream.write(' C2X="{0}" C2Y="{1}" C2Z="{2}"/>\n'. \
-	      format(xtne.x, xtne.y, xtne.z))
+	xbsw = self.xbsw
+	xtne = self.xtne
+	ezcad = self._ezcad
+	ezcad._xml_stream.write( ('{0}<Extra C1X="{1}" C1Y="{2}" C1Z="{3}"' + \
+	  ' C2X="{4}" C2Y="{5}" C2Z="{6}"/>\n'). format(" " * ezcad._xml_indent,
+	  xbsw.x, xbsw.y, xbsw.z, xtne.x, xtne.y, xtne.z))
 
     def extra_xyz(self, dx, dy, dz):
-	""" """
+	""" {Part}: Add some extra material the block of {self} by {dx},
+	    {dy}, and {dz} in the X, Y, and Z dimensions. """
 
+	# Argument type checking:
+	assert isinstance(dx, Length)
+	assert isinstance(dy, Length)
+	assert isinstance(dz, Length)
+
+	# Pass everything on to {extra_ewnstb}:
 	half_dx = dx.half()
 	half_dy = dy.half()
 	half_dz = dz.half()
 	self.extra_ewnstb(half_dx, half_dx, half_dy, half_dy, half_dz, half_dz)
-
 
     def extrusion(self, color, material, kind, start_point, end_point, \
       a_width, a_thickness, b_width, b_thickness, rotate):
@@ -1378,7 +1388,7 @@ class Part:
 	if self.construct_mode():
 	    ezcad = self.ezcad
 	    xml_stream = ezcad.xml_stream
-	    xml_stream.write('{0}<Extrusion'.format(ezcad.xml_indent))
+	    xml_stream.write('{0}<Extrusion'.format(ezcad._xml_indent))
 	    xml_stream.write(' Kind="{0}"'.format(kind))
 	    xml_stream.write(' SX="{0}" SY="{1}" SZ="{2}"'.format(x1, y1, z1))
 	    xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'.format(x2, y2, z2))
@@ -1419,7 +1429,7 @@ class Part:
 
 	# Extract some values from {ezcad}:
 	ezcad = self.ezcad
-	xml_indent = ezcad.xml_indent
+	xml_indent = ezcad._xml_indent
 	xml_stream = ezcad.xml_stream
 
 	# Output <Hole Diameter= Countersink_Diameter= ...
@@ -1457,7 +1467,7 @@ class Part:
 
 	# Extract some values from {ezcad}:
 	ezcad = self.ezcad
-	xml_indent = ezcad.xml_indent
+	xml_indent = ezcad._xml_indent
 	xml_stream = ezcad.xml_stream
 
 	# Write out <Hole_Through Diameter= SX= SY= SZ= Flags= Comment= />:
@@ -1527,6 +1537,10 @@ class Part:
 	    to {self} with no rotation.  {place_name} is used for point
 	    paths. """
 
+	assert isinstance(place_part, Part)
+	assert isinstance(place_name, str)
+	assert isinstance(translate_point, Point)
+
 	deg = Angle.deg
 	inch = Length.inch
 	zero = inch(0)
@@ -1553,12 +1567,19 @@ class Part:
 	assert self != place_part, \
 	  "Part.place('{0}'): Attempting a self-referential place"
 
+	assert isinstance(place_part, Part)
+	assert isinstance(place_name, str)
+	assert isinstance(translate_point, Point)
+	assert isinstance(axis_point, Point)
+	assert isinstance(rotate_angle, Angle)
+	assert isinstance(translate_point, Point)
+
 	places = self._places
 
 	cm = Length.cm
 	deg = Angle.deg
 	zero = cm(0)
-	place = Place(self, place_part, \
+	place = Place(place_name, self, place_part, \
 	  center_point, axis_point, rotate_angle, translate_point)
 	places[place_name] = place
 
@@ -2412,7 +2433,7 @@ class Part:
 
 	# Extract some values from {ezcad}:
 	ezcad = self.ezcad
-	xml_indent = ezcad.xml_indent
+	xml_indent = ezcad._xml_indent
 	xml_stream = ezcad.xml_stream
 
 	# Make sure we are in construct mode:
@@ -2435,37 +2456,42 @@ class Part:
 
 	print("No manufacture method for '{0}'".format(self))
 
-    def _manufacture(self, ezcad, xml_stream, indent):
+    def _manufacture(self):
 	""" Part: Output the XML for *self* to *xml_stream*
 	    indented by *indent*. """
 
-	# Check argument types:
-	assert isinstance(ezcad, EZCAD2)
-	assert isinstance(xml_stream, file)
-	assert isinstance(indent, int)
+	ezcad = self._ezcad
+	xml_stream = ezcad._xml_stream
+	xml_indent = ezcad._xml_indent
 
 	children = self._children
 	places_values = self._places.values()
 
 	# Output "<Part ...>" to *xml_stream*:
-	xml_stream.write( \
-	  '{0}<Part Name="{1}" Parts="{2}" Places="{3}">\n'.format( \
-	  " " * indent, self._name, len(children), len(places_values)))
+	xml_stream.write('{0}<Part Name="{1}" Parts="{2}" Places="{3}">\n'. \
+	  format(" " * ezcad._xml_indent,
+	  self._name, len(children), len(places_values)))
 	
 	# Output all of the manufacturing XML for *self* to *xml_stream*:
-	indent1 = indent + 1
-	self._xml_indent = indent1
+	ezcad = self._ezcad
+	ezcad.xml_indent_push()
+	for xml_line in self._xml_lines:
+	    xml_stream.write("{0}{1}\n". \
+	      format(" " * ezcad._xml_indent, xml_line))
+
 	self.manufacture()
 
 	# Output all of the XML for the child parts of *self* to *xml_stream*:
 	for child in children:
-	    child._manufacture(ezcad, xml_stream, indent + 1)
+	    child._manufacture()
 
 	# Output each placement as well:
 	for place in places_values:
+	    home_part = place.home_part
+	    placed_part = place.placed_part
 	    xml_stream.write(
 	      '{0}<Place Part_Path="{1}" Place_Name="{2}"'.format(
-	      " " * indent1, "part_path", "place_name"))
+	      " " * ezcad._xml_indent, placed_part._name, place.place_name))
 	    center_point = place.center_point
 	    xml_stream.write(' CX="{0}" CY="{1}" CZ="{2}"'.format( \
 	      center_point.x, center_point.y, center_point.z))
@@ -2476,8 +2502,6 @@ class Part:
 	    translate_point = place.translate_point
 	    xml_stream.write(' DX="{0}" DY="{1}" DZ="{2}"/>\n'.format( \
 	       translate_point.x, translate_point.y, translate_point.z))
-
-
 
 	#def start(self, name):
 	#""" Part (part tree mode): Create a new {Part} with a name of {name}
@@ -2515,13 +2539,14 @@ class Part:
 	#	xml_stream = ezcad.xml_stream
 	#	xml_stream.write( \
 	#	  '{0}<Part Name="{1}" Parts="{2}" Places="{3}">\n'.format( \
-	#	  ezcad.xml_indent, name, len(part.parts.keys()), \
+	#	  ezcad._xml_indent, name, len(part.parts.keys()), \
 	#	  len(part.places.keys())))
 	#	ezcad.xml_indent_push()
 		
 	#return part
 
-	xml_stream.write("{0}</Part>\n".format(" " * indent))
+	ezcad.xml_indent_pop()
+	xml_stream.write("{0}</Part>\n".format(" " * ezcad._xml_indent))
 
     def string(self, string_path):
 	""" Part dimensions: Return the {String} associated with {string_path}
@@ -2545,7 +2570,7 @@ class Part:
 	    xml_stream = ezcad.xml_stream
 	    xml_stream.write( \
 	      '{0}<Tool_Prefer Tool_Name="{1}"/>\n'. \
-	      format(ezcad.xml_indent, tool_name))
+	      format(ezcad._xml_indent, tool_name))
 
     def tooling_plate(self, comment, flags, trace = False):
 	""" Part construct: Cause a grid of tooling plate holes to be
@@ -2573,7 +2598,8 @@ class Part:
 	and 4 of the tooling holes on the inside are moved outward
 	from the center. """
 
-	if self.construct_mode():
+	#if self.construct_mode():
+	if True:
 	    # Parse {flags}:
 
 	    # {adjusts} lists any holes that have been moved:
@@ -2643,15 +2669,14 @@ class Part:
 		print "removes=", removes
 		print "adjusts=", adjusts
 
-	    ezcad = self.ezcad
-	    xml_stream = ezcad.xml_stream
+	    ezcad = self._ezcad
+	    xml_stream = ezcad._xml_stream
 	    xml_stream.write('{0}<Tooling_Plate Rows="{1}" '. \
-	      format(ezcad.xml_indent, rows))
+	      format(" " * ezcad._xml_indent, rows))
 	    xml_stream.write('Columns="{0}" Comment="{1}">\n'. \
 	      format(columns, comment))
 	    
 	    ezcad.xml_indent_push()
-            xml_indent = ezcad.xml_indent
 	    for row in range(0, rows):
 		for column in range(0, columns):
 		    row_column = (row, column)
@@ -2667,7 +2692,7 @@ class Part:
 			  format(row, column, adjust, remove)
 
 		    xml_stream.write('{0}<Tooling_Hole'. \
-		      format(ezcad.xml_indent))
+		      format(" " * ezcad._xml_indent))
 		    xml_stream.write(' Row="{0}" Column="{1}"'. \
 		      format(row, column))
 		    xml_stream.write(' Adjust_X="{0}" Adjust_Y="{1}"'. \
@@ -2675,17 +2700,19 @@ class Part:
 		    xml_stream.write(' Flags="{0}"/>\n'. format(remove))
 		    
 	    ezcad.xml_indent_pop()
-	    xml_stream.write('{0}</Tooling_Plate>\n'. format(ezcad.xml_indent))
+	    xml_stream.write('{0}</Tooling_Plate>\n'. \
+	     format(" " *ezcad._xml_indent))
 
     def tooling_plate_mount(self, comment):
 	""" Part construction: Cause the mounting plate that holds {self}
 	    to be mounted. """
 
-	if self.construct_mode():
-	    ezcad = self.ezcad
-	    ezcad.xml_stream.write( \
+	#if self.construct_mode():
+	if True:
+	    ezcad = self._ezcad
+	    ezcad._xml_stream.write( \
 	      '{0}<Tooling_Plate_Mount Comment="{1}"/>\n'. \
-	      format(ezcad.xml_indent, comment))
+	      format(" " * ezcad._xml_indent, comment))
 
     def tube(self, color, material, \
       start_point, end_point, diameter, wall_thickness, sides):
@@ -2775,7 +2802,7 @@ class Part:
 	if self.construct_mode():
 	    ezcad = self.ezcad
 	    xml_stream = ezcad.xml_stream
-	    xml_stream.write('{0}<Tube'.format(ezcad.xml_indent))
+	    xml_stream.write('{0}<Tube'.format(ezcad._xml_indent))
 	    xml_stream.write(' SX="{0}" SY="{1}" SZ="{2}"'.format(x1, y1, z1))
 	    xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'.format(x2, y2, z2))
 	    xml_stream.write(
@@ -2934,7 +2961,7 @@ class Part:
 
 	# Extract some values from {ezcad}:
 	ezcad = self.ezcad
-	xml_indent = ezcad.xml_indent
+	xml_indent = ezcad._xml_indent
 	xml_stream = ezcad.xml_stream
 
 	# Make sure we are in construct mode:
@@ -2961,27 +2988,29 @@ class Part:
 	    to any generated G-code. """
 
 	# Only generate XML in construct_mode:
-	if self.construct_mode():
+	#if self.construct_mode():
+	if True:
 	    # Before we get too far, flush any pending screw holes
 	    # from the previous mounting:
-	    if self.top_surface_set:
+	    if self._top_surface_set:
 		self.screw_holes(True)
 
 	    # Extract some values from {ezcad}:
-	    ezcad = self.ezcad
-	    xml_indent = ezcad.xml_indent
-	    xml_stream = ezcad.xml_stream
+	    ezcad = self._ezcad
+	    xml_indent = ezcad._xml_indent
+	    xml_stream = ezcad._xml_stream
 
-	    corner1 = self.point("$TNE")
-	    corner2 = self.point("$BSW")
+	    corner1 = self.tne
+	    corner2 = self.bsw
 	    cx = (corner1.x + corner2.x).half()
 	    cy = (corner1.y + corner2.y).half()
 	    cz = (corner1.z + corner2.z).half()
 
 	    # <Vice_Position TX= TY= TZ= NX= NY= NZ= WX= WY= WZ= CX= CY= CZ=/>:
 	    xml_stream.write( \
-	      '{0}<Vice_Position TX="{1}" TY="{2}" TZ="{3}"'.format( \
-	      xml_indent, surface_point.x, surface_point.y, surface_point.z))
+	      '{0}<Vice_Position TX="{1}" TY="{2}" TZ="{3}"'. \
+	      format(" " * xml_indent, surface_point.x, surface_point.y,
+	      surface_point.z))
 	    xml_stream.write( \
 	      ' NX="{0}" NY="{1}" NZ="{2}"'.format( \
 	      north_point.x, north_point.y, north_point.z))
@@ -2989,18 +3018,26 @@ class Part:
 	      west_point.x, west_point.y, west_point.z))
 	    xml_stream.write(' CX="{0}" CY="{1}" CZ="{2}"'.format(cx, cy, cz))
 	    xml_stream.write(' Comment="{0}"/>\n'.format(comment))
-	    self.top_surface = surface_point
-	    self.top_surface_set = True
+	    self._top_surface = surface_point
+	    self._top_surface_set = True
 
 class Place:
     """ A {Place} represents the placement of a part relative to the
 	origin of an assembly. """
 
-    def __init__(self, home_part, placed_part, \
+    def __init__(self, place_name, home_part, placed_part, \
       center_point, axis_point, rotate_angle, translate_point):
 	""" Place: Initialize {self} to contain {home_part}, {placed_part},
 	    {center_point}, {axis_point}, {rotate_angle}, and
 	    {translate_point}. """
+
+	assert isinstance(place_name, str)
+	assert isinstance(home_part, Part)
+	assert isinstance(placed_part, Part)
+	assert isinstance(center_point, Point)
+	assert isinstance(axis_point, Point)
+	assert isinstance(rotate_angle, Angle)
+	assert isinstance(translate_point, Point)
 
 	#print "Place({0}, {1}, {2}, {3}, {4}, {5})". \
 	#  format(home_part.name, placed_part.name, center_point, \
@@ -3053,6 +3090,7 @@ class Place:
 	#  format(forward_matrix.mat, reverse_matrix.mat)
 
 	# Load up {self}:
+	self.place_name = place_name
 	self.forward_matrix = forward_matrix
 	self.home_part = home_part
 	self.placed_part = placed_part

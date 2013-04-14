@@ -1,16 +1,17 @@
 *~
+*.bom
 *.c
-*.h
-*.xml
 *.ezg
-*.o
-*.stl
+*.h
 *.ngc
-*.png
-*.so.*
+*.o
 *.off
+*.png
 *.pyc
+*.so.*
+*.stl
 *.wrl
+*.xml
 
 # Directories to ignore:
 EZCAD

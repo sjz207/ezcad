@@ -8,12 +8,12 @@ class Paste(Part):
     def __init__(self, parent):
 	""" Paste_Assembly: Initialize *self* to have """
 
-	# List the children {Parts}'s in the {Part} tree:
-	self.top = Top(self)
-	self.holder = Holder(self)
+	# List the children {Part}'s in the {Part} tree:
+	#self.top = Top(self)
+	#self.holder = Holder(self)
 	self.wall = Wall(self)
 
-	# Initialize the parent assembly:
+	# Initialize the parent class object:
 	Part.__init__(self, "paste", parent)
 
 	# Part origin is at bottom aligned with center axis:
@@ -32,20 +32,25 @@ class Paste(Part):
 	inch = Length.inch
 	zero = inch(0)
 
-	origin = self.point(zero, zero, zero)
-	self.place(self.top, "top", origin)
-	self.place(self.holder, "holder", origin)
-	self.place(self.wall, "west_wall", origin)
-	self.place(self.wall, "east_wall", origin)
+	
+	self.place(self.wall, "west_wall",
+	  self.point(-self.dx.half(), zero, zero))
+	self.place(self.wall, "east_wall",
+	  self.point(self.dx.half(), zero, zero))
+
+    def manufacture(self):
+	pass
 
 class Top(Part):
 
     def __init__(self, parent):
 	""" Top: """
 
+	# Create the children {Part}'s in the {Part} tree:
 	self.shaft = Shaft(self)
 	self.top_plate = Top_Plate(self)
 
+	# Initilize the {Part} parent class object:
 	Part.__init__(self, "top", parent)
 
     def dimensions(self):
@@ -80,11 +85,11 @@ class Top_Plate(Part):
 	inch= Length.inch
 	zero = inch(0)
 
-	#length_x = top_plate.length_set("length_x", inch(4))
-	#width_y = top_plate.length_set("width_y", inch(1.75))
-	#top_plate_z = top_plate.length_set("top_plate_z", inch(0.5))
-	#shaft = top_plate.part("../shaft")
-	#shaft_diameter = shaft.length("shaft_diameter")
+	self.length_x = inch(4)
+	self.width_y = inch(1.75)
+	self.top_plate_z = inch(0.5)
+	shaft = self.parent.shaft
+	shaft_diameter = shaft.shaft_diameter
 	#shaft_depth = top_plate.length_set("shaft_depth", inch(3.0/8.0))
 	#collet_depth = top_plate.length_set("collet_depth", inch(0.1))
 	#collet_inside_diameter = inch(1.25)
@@ -216,33 +221,31 @@ class Shaft(Part):
 
     def __init__(self, parent):
 
+	# Initialize the parent class object:
 	Part.__init__(self, "shaft", parent)
 
+	inch = Length.inch
+
+	# Initialize all accessible fields:
+	self.diameter = inch(0.75)
 
     def dimensions(self):
-	inch= Length.inch
+	inch = Length.inch
 	zero = inch(0)
 
-	#top = shaft.part("..")
-	#top_plate = top.part("top_plate")
+	top = self.parent
+	top_plate = top.top_plate
 
-	#top_plate_shaft_depth = top_plate.length("shaft_depth")
-	#shaft_z = inch(1.375) + top_plate_shaft_depth
-
-	#shaft_diameter = shaft.length_set("shaft_diameter", inch(0.75))
-	#shaft_above = shaft_z - top_plate_shaft_depth
+	self.shaft_z = inch(1.375) + top_plate.shaft_depth
+	self.shaft_above = shaft_z - top_plate.shaft_depth
   
-	#rod_start = shaft.point_new(zero, zero, -top_plate_shaft_depth)
-	#rod_end = shaft.point_new(zero, zero, shaft_above)
-
-	#o = shaft.point("$O")
-	#t = shaft.point("$T")
-	#b = shaft.point("$B")
-	#bn = shaft.point("$BN")
-	#be = shaft.point("$BE")
-	#bw = shaft.point("$BW")
+	self.rod_start = shaft.point_new(zero, zero, -self.top_plate_shaft_depth)
+	self.rod_end = shaft.point_new(zero, zero, self.shaft_above)
 
 	#shaft.rod("purple", "aluminum", rod_start, rod_end, shaft_diameter, 0)
+
+    def manufacture(self):
+	print "manufacture Shaft"
 
 def shaft_part(parent):
     if shaft.construct_mode():
@@ -258,20 +261,23 @@ class Wall(Part):
     def __init__(self, parent):
 	""" Part: Initialize *self* with *parent* and *coordinates*. """
 
+	inch = Length.inch
+
+	self.thickness = inch("1/8")
+
 	Part.__init__(self, "wall", parent)
 
     def dimensions(self):
 	""" Wall: """
 
 	## Find associated *Part*'s:
-	#paste = self._parent
+	paste = self._parent
 	#top = paste.top
 	#top_plate = top.top_plate
 	#holder = paste.holder
 	#support = holder.support
 
 	## Extract some values from {top_plate and paste assembly}:
-	#width_y = top_plate.length("width_y")
 	#top_plate_z = top_plate.length("top_plate_z")
 	#height_z = paste.length("height_z")
 	#collet_depth = top_plate.length("collet_depth")
@@ -294,40 +300,37 @@ class Wall(Part):
 	#wall_thickness = wall.length_set("wall_thickness", inch("1/8"))
 
 	#diagonal = top_plate.point_new(wall_thickness, width_y, \
-	#			       height_z - top_plate_z + collet_depth)
+    	#			       height_z - top_plate_z + collet_depth)
 
-	#o = wall.point("$O")
-	#t = wall.point("$T")
-	#e = wall.point("$E")
-	#ne = wall.point("$NE")
-	#te = wall.point("$TE")
+	corner1 = self.point_new(-paste.dx.half(), -paste.dy.half(), -paste.dz.half())
+	corner2 = self.point_new(-paste.dx.half() + self.thickness,
+	  paste.dy.half(), paste.dz.half())
 
-	#extra = inch(0.25)
-	#wall.extra_xyz(zero, extra, extra)
-	#xne = wall.point("$XNE")
-	#xte = wall.point("$XTE")
+	self.block_corners(corner1, corner2, "green", "aluminum")
 
-	#wall.block_diagonal(diagonal, "green", "aluminum")
-	pass
+    def manufacture(self):
+	""" {Wall}: """
 
-def wall():
-    if wall.construct_mode():
-	    print "Construct wall"
-	    wall.chamfers(inch(0.025), zero)
-	    wall.vice_position("mount flat in vice", e, xne, xte)
-	    #wall.tooling_plate("tooling plate", "1Ase 1Bsw 2Ae 2Bw")
-	    wall.tooling_plate("tooling plate", "")
-	    wall.tooling_plate_mount("mount tooling plate")
+	inch = Length.inch
+	zero = inch(0.0)
 
-	    wall.boundary_trim("Exterior Trim", inch("1/16"), "t")
+	extra = inch(0.25)
+	self.extra_xyz(zero, extra, extra)
 
-	    wall.screw_through("side hole", "6-32", hole_place_nwt, "u")
-	    wall.screw_through("side hole", "6-32", hole_place_swt, "u")
-	    wall.screw_through("side hole", "6-32", hole_place_nwb, "u")
-	    wall.screw_through("side hole", "6-32", hole_place_swb, "u")
+	print "Construct wall"
+	#self.chamfers(inch(0.025), zero)
+	self.vice_position("mount flat in vice", self.e, self.xne, self.xte)
+	#wall.tooling_plate("tooling plate", "1Ase 1Bsw 2Ae 2Bw")
+	self.tooling_plate("tooling plate", "")
+	self.tooling_plate_mount("Mount on tooling plate")
+
+	self.boundary_trim("Exterior Trim", inch("1/16"), "t")
+
+	#self.screw_through("side hole", "6-32", hole_place_nwt, "u")
+	#self.screw_through("side hole", "6-32", hole_place_swt, "u")
+	#self.screw_through("side hole", "6-32", hole_place_nwb, "u")
+	#self.screw_through("side hole", "6-32", hole_place_swb, "u")
     
-    return wall.done()
-
 class Holder(Part):
     """ paste design. """
 
