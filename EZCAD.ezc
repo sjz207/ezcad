@@ -1435,7 +1435,7 @@ routine extract@Assembly
 	    switch placement.kind
 	      case part
 		part :@= placement.part		
-		hash :@= most_recent_hash@(part)
+		hash :@= most_recent_hash@(part, "extract@Assembly")
 		if !is_in@(table, hash)
 		    call insert@(table, hash, hashes.size)
 		    call append@(hashes, hash)
@@ -8666,7 +8666,7 @@ routine binary_operation@Part
     # on the last hash in {part} with {hash} as the second argument.
 
     # Fetch {previous_hash}, the last hash in {part.hashes}:
-    previous_hash :@= most_recent_hash@(part)
+    previous_hash :@= most_recent_hash@(part, "binary_operation@Part")
 
     # For debugging only:
     cache :@= part.shop.cache
@@ -10013,6 +10013,7 @@ routine log@Part
 
 routine most_recent_hash@Part
     takes part Part
+    takes from String
     returns String
 
     # This routine will return the most recent hash associated with {part}.
@@ -10020,7 +10021,8 @@ routine most_recent_hash@Part
     hashes :@= part.hashes
     size :@= hashes.size
     if size = 0
-	call d@(form@("Part %v% has no hashes\n\") / f@(part.name))
+	call d@(form@("Part %v% has no hashes (from %v%)\n\") %
+	  f@(part.name) / f@(from))
 	assert 0f
     return hashes[size - 1]
 
@@ -10216,7 +10218,7 @@ routine off_compute@Part
 	cache :@= part.shop.cache
 
 	# Get the last hash from {part}:
-	last_hash :@= most_recent_hash@(part)
+	last_hash :@= most_recent_hash@(part, "off_compute@Part")
 
 	# Convert {last_hash} to a fixed up .off file stored in {cache}:
 	hash :@= pipe_operation@(cache, last_hash,

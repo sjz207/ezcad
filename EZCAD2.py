@@ -150,6 +150,10 @@ class Angle:
 class EZCAD2:
     """ EZCAD is the top level engine that executes the design. """
 
+    # Modes:
+    DIMENSIONS = 1
+    MANUFACTURE = 2
+
     def __init__(self, major, minor):
 	""" {EZCAD}: Initialize the contents of {self} to contain
 	    {major} and {minor} version numbers. """
@@ -534,8 +538,8 @@ class Part:
 	    attribute = getattr(self, attribute_name)
             if isinstance(attribute, Part):
 		children.append(attribute)
-		print("{0}['{1}'] = {2}". \
-		  format(name, attribute_name, attribute._name))
+		#print("{0}['{1}'] = {2}". \
+		#  format(name, attribute_name, attribute._name))
 
 	# Load up {screw_levels}:
 	screw_levels = {}
@@ -569,6 +573,42 @@ class Part:
 	self._top_surface_set = False
 	self._xml_lines = []
 
+	# Load up the bounding box:
+	origin = self.point(zero, zero, zero)
+	self.o = origin
+
+	# Faces:
+	self.b = origin
+	self.e = origin
+	self.n = origin
+	self.s = origin
+	self.t = origin
+	self.w = origin
+
+	# Edges:
+	self.be = origin
+	self.bw = origin
+	self.bn = origin
+	self.bs = origin
+	self.ne = origin
+	self.nw = origin
+	self.se = origin
+	self.sw = origin
+	self.te = origin
+	self.tw = origin
+	self.tn = origin
+	self.ts = origin
+
+	# Corners:
+	self.tne = origin
+	self.tnw = origin
+	self.tse = origin
+	self.tsw = origin
+	self.bne = origin
+	self.bnw = origin
+	self.bse = origin
+	self.bsw = origin
+
 	if parent == None:
 	    zero = Length.inch(0.0)
 	    self._origin_set(Point(self, zero, zero, zero))
@@ -584,9 +624,9 @@ class Part:
 	assert isinstance(e, Length)
 	assert isinstance(n, Length)
 	assert isinstance(t, Length)
-	assert w < e, "w={0} should be less than e={1}".format(w, e)
-	assert s < n, "s={0} should be less than n={1}".format(s, n)
-	assert b < t, "b={0} should be less than t={1}".format(b, t)
+	assert w <= e, "w={0} should be less than e={1}".format(w, e)
+	assert s <= n, "s={0} should be less than n={1}".format(s, n)
+	assert b <= t, "b={0} should be less than t={1}".format(b, t)
 
 	# Compute the mid-point values for east-west, north-south and
 	# top-bottom:
@@ -675,13 +715,17 @@ class Part:
 	assert False, \
 	  "No dimensions() method defined for part '{0}'".format(self._name)
 
+    def construct(self):
+	assert False, \
+	  "No construct() method defined for part '{0}'".format(self._name)
+
     def process(self):
 	""" {Part}: Generate the XML control file for *self*. """
 
 	# Do the dimensions propogate phase:
 	changed = 1
 	while changed != 0:
-	    changed = self._dimensions_update(0)
+	    changed = self._dimensions_update(-1000000)
 
 	# Open the XML output stream:
 	xml_file_name = self._name + ".xml"
@@ -734,17 +778,23 @@ class Part:
 	attribute_names = dir(self)
 	before_values = {}
 	for attribute_name in attribute_names:
-	    before_values[attribute_name] = getattr(self, attribute_name)
+	    if attribute_name[0] != '_':
+		before_values[attribute_name] = getattr(self, attribute_name)
 	
 	# Peform dimension updating for *self*:
-	self.dimensions()
+	self.construct()
 
 	# See if anything changed:
 	for attribute_name in attribute_names:
-	    before_value = before_values[attribute_name]
-            after_value = getattr(self, attribute_name)
-            if before_value != after_value:
-		changed += 1
+	    if attribute_name[0] != '_':
+		before_value = before_values[attribute_name]
+		after_value = getattr(self, attribute_name)
+		assert type(before_value) == type(after_value), \
+		  "{0}.{1} before type ({2}) different from after type ({3})". \
+		  format(self._name, attribute_name, type(before_value),
+		  type(after_value))
+		if before_value != after_value:
+		    changed += 1
 
 	if trace >= 0:
 	    print("{0}<=Part.dimensions_update('{1}')=>{2}". \
@@ -775,10 +825,12 @@ class Part:
 	    from {vice_position}() trim the 4 corners with a radius of
 	    {corner_radius}. """
 
-	print "=>Part.boundary_trim({0}, '{1}', {2}, '{3}')". \
-	  format(self._name, comment, corner_radius, flags)
+	#print "=>Part.boundary_trim({0}, '{1}', {2}, '{3}')". \
+	#  format(self._name, comment, corner_radius, flags)
 
-	if True:
+	ezcad = self._ezcad
+	xml_stream = ezcad._xml_stream
+	if xml_stream != None:
 	    # Grab the 6 surfaces:
 	    t = self.t
 	    b = self.b
@@ -881,9 +933,9 @@ class Part:
 	z1 = min(corner1.z, corner2.z)
 	z2 = max(corner1.z, corner2.z)
 
-	assert x1 < x2, "x1={0} should be less than x2={1}".format(x1, x2)
-	assert y1 < y2, "y1={0} should be less than y2={1}".format(y1, y2)
-	assert z1 < z2, "xz={0} should be less than z2={1}".format(z1, z2)
+	#assert x1 < x2, "x1={0} should be less than x2={1}".format(x1, x2)
+	#assert y1 < y2, "y1={0} should be less than y2={1}".format(y1, y2)
+	#assert z1 < z2, "xz={0} should be less than z2={1}".format(z1, z2)
 
 	#print "c1=({0},{1},{2}) c2=({3},{4},{5})".format( \
 	#  x1, y1, z1, x2, y2, z2)
@@ -898,7 +950,7 @@ class Part:
 	  ' Color="{6}" Transparency="{7}" Material="{8}" Comment="{9}"/>'). \
 	  format(x1, y1, z1, x2, y2, z2,
 	  color, self._transparency, material, self._name))
-	print "Part.block_corners:_xml_lines={0}".format(self._xml_lines)
+	#print "Part.block_corners:_xml_lines={0}".format(self._xml_lines)
 
     def block_diagonal(self, diagonal, color, material):
 	""" Part construct: Turn {self} into a block centered on the origin
@@ -973,8 +1025,8 @@ class Part:
 	corners = self._corners
 	corners_size = len(corners)
 	assert corners_size >= 3, \
-	  "Part {0} only has {1} corners which is insufficient". \
-	  format(self.name, corners_size)
+	  "Part '{0}' only has {1} corners which is insufficient". \
+	  format(self._name, corners_size)
 
 	# Now figure out the desired order for {corners}.  Depending upon
 	# what {top_surface} is being used, we reverse the contour direction:
@@ -1023,16 +1075,18 @@ class Part:
 
 	# Extract some values from {ezcad}:
 	ezcad = self._ezcad
-	xml_indent = ezcad._xml_indent
 	xml_stream = ezcad._xml_stream
+	if xml_stream != None:
+	    xml_indent = ezcad._xml_indent
 
-	# Make sure we are in construct mode:
-	#assert self.ezcad.construct_mode()
+	    # Make sure we are in construct mode:
+	    #assert self.ezcad.construct_mode()
 
-	corner_xml = ('{0}<Corner Radius="{1}" CX="{2}" CY="{3}" CZ="{4}"' + \
-	  ' Comment="{5}"/>\n').format(" " * xml_indent,
-	  radius, corner_point.x, corner_point.y, corner_point.z, comment)
-	self._corners.append(corner_xml)
+	    corner_xml = \
+	      ('{0}<Corner Radius="{1}" CX="{2}" CY="{3}" CZ="{4}"' + \
+	      ' Comment="{5}"/>\n').format(" " * xml_indent,
+	      radius, corner_point.x, corner_point.y, corner_point.z, comment)
+	    self._corners.append(corner_xml)
 
     def done(self):
 	""" Part (tree_mode): Mark {self} as done.  {self} is
@@ -1054,7 +1108,7 @@ class Part:
 		self.screw_holes(True)
 
        	    # Look for any screws that have not been processed:
-	    screw_levels = self.screw_levels
+	    screw_levels = self._screw_levels
             for screw_level_table in screw_levels.values():
 		for screw_level in screw_level_table.values():
 		    assert screw_level.done, \
@@ -1175,9 +1229,12 @@ class Part:
 	xbsw = self.xbsw
 	xtne = self.xtne
 	ezcad = self._ezcad
-	ezcad._xml_stream.write( ('{0}<Extra C1X="{1}" C1Y="{2}" C1Z="{3}"' + \
-	  ' C2X="{4}" C2Y="{5}" C2Z="{6}"/>\n'). format(" " * ezcad._xml_indent,
-	  xbsw.x, xbsw.y, xbsw.z, xtne.x, xtne.y, xtne.z))
+	xml_stream = ezcad._xml_stream
+	if xml_stream != None:
+	    xml_stream.write( ('{0}<Extra C1X="{1}" C1Y="{2}" C1Z="{3}"' + \
+	      ' C2X="{4}" C2Y="{5}" C2Z="{6}"/>\n'). \
+	      format(" " * ezcad._xml_indent,
+	      xbsw.x, xbsw.y, xbsw.z, xtne.x, xtne.y, xtne.z))
 
     def extra_xyz(self, dx, dy, dz):
 	""" {Part}: Add some extra material the block of {self} by {dx},
@@ -2205,161 +2262,167 @@ class Part:
 	inch = Length.inch
 	big = inch(123456789.0)
 	
-	assert self.construct_mode(), \
-	  "Invoking Part.screw_holes() in mode other than construct mode"
-	
-	# Grab the six surfaces from {self}:
-	b = self.point("$B")
-	e = self.point("$E")
-	n = self.point("$N")
-	s = self.point("$S")
-	t = self.point("$T")
-	w = self.point("$W")
+	ezcad = self._ezcad
+	xml_stream = ezcad._xml_stream
+	if xml_stream != None:
+	    # Grab the six surfaces from {self}:
+	    b = self.b
+	    e = self.e
+	    n = self.n
+	    s = self.s
+	    t = self.t
+	    w = self.w
 
-	# Extract the bounding box of {self}:
-	t_z = t.z
-	b_z = b.z
-	n_y = n.y
-	s_y = s.y
-	e_x = e.x
-	w_x = w.x
+	    # Extract the bounding box of {self}:
+	    t_z = t.z
+	    b_z = b.z
+	    n_y = n.y
+	    s_y = s.y
+	    e_x = e.x
+	    w_x = w.x
 
-	# Figure out {screw_levels_table} based on {top_surface}:
-	screw_levels = self.screw_levels
-	top_surface = self.top_surface
-	screw_levels_table = {}
-	if self.top_surface_set:
-	    if top_surface == t:
-		screw_levels_table = screw_levels["T"]
-		top_surface_name = "Top"
-		t_z = big
-		b_z = -big
-	    elif top_surface == b:
-		screw_levels_table = screw_levels["B"]
-		top_surface_name = "Bottom"
-	        t_z = big
-		b_z = -big
-            elif top_surface == n:
-		screw_levels_table = screw_levels["N"]
-		top_surface_name = "North"
-	        n_y = big
-		s_y = -big
-	    elif top_surface == s:
-		screw_levels_table = screw_levels["S"]
-		top_surface_name = "South"
-		n_y = big
-		s_y = -big
-	    elif top_surface == e:
-		screw_levels_table = screw_levels["E"]
-		top_surface_name = "East"
-		e_x = big
-		w_x = -big
-	    elif top_surface == w:
-		screw_levels_table = screw_levels["W"]
-		top_surface_name = "West"
-		e_x = big
-		w_x = -big
-	    else:
-		assert False, \
-		  "Unexpected top surface for part {0} is {1}". \
-		  format(self.name, top_surface)
-
-	if len(screw_levels_table) == 0:
-	    assert errors_suppress, \
-	      "Part '{0}' does not have any attached holes on {1} surface". \
-	      format(self.name, top_surface_name)
-	else:
-	    for screw_level in screw_levels_table.values():
-		#print "screw_level=", screw_level
-		screw = screw_level.screw
-		#print "screw.name=", screw.name
-		trace = False
-		#trace = screw.name.find("skin_west_bottom") >= 0
-
-		# Grap {anchor_point_mapped} from {screw}:
-		anchor_point_mapped = screw.anchor_point_mapped
-		if trace:
-		    print "=>Part.screw_holes({0})".format(self.name)
-		    print "anchor_point_mapped={0}".format(anchor_point_mapped)
-
-		remap_matrix = screw_level.reverse_matrix
-		if trace:
-		    print "screw_level_forward_matrix=\n{0}". \
-		      format(screw_level.forward_matrix.mat	)
-		    print "screw_level_reverse_matrix=\n{0}". \
-		      format(screw_level.reverse_matrix.mat)
-		    #print "remap_matrix=\n{0}".format(remap_matrix.mat)
-		anchor_point_remapped = \
-		  remap_matrix.point_multiply(anchor_point_mapped, self)
-		x = anchor_point_remapped.x
-		y = anchor_point_remapped.y
-		z = anchor_point_remapped.z
-		if trace:
-		    bse = self.point("$BSE")
-		    tnw = self.point("$TNW")
-		    print "bse={0}".format(bse)
-		    print "tnw={0}".format(tnw)
-		    print "anchor_point_remapped={0}". \
-		      format(anchor_point_remapped)
-		    #print "w_x={0} e_x={1} s_y={2} n_y={3} b_z={4} t_z={5}". \
-		    #  format(w_x, e_x, s_y, n_y, b_z, t_z)
-
-		# Make sure everything is in on the part:
-		assert w_x <= x and x <= e_x, \
-		  "X (={0}) for screw {1} not between {2} and {3} (part={4})". \
-		  format(x, screw.name, w_x, e_x, self.name)
-		assert s_y <= y and y <= n_y, \
-		  "Y (={0}) for screw {1} not between {2} and {3} (part={4})". \
-		  format(y, screw.name, s_y, n_y, self.name)
-		assert b_z <= z and z <= t_z, \
-		  "Z (={0}) for screw {1} not between {2} and {3} (part={4})". \
-		  format(z, screw.name, b_z, t_z, self.name)
-
-		# Compute {start_point} and {end_point} based on
-		# {top_surface} and {depth}:
-		depth = screw_level.depth
+	    # Figure out {screw_levels_table} based on {top_surface}:
+	    screw_levels = self._screw_levels
+	    top_surface = self._top_surface
+	    screw_levels_table = {}
+	    if self._top_surface_set:
 		if top_surface == t:
-		    start_point = self.point_new(x, y, t.z)
-		    end_point = start_point.z_adjust(-depth)
+		    screw_levels_table = screw_levels["T"]
+		    top_surface_name = "Top"
+		    t_z = big
+		    b_z = -big
 		elif top_surface == b:
-		    start_point = self.point_new(x, y, b.z)
-		    end_point = start_point.z_adjust(depth)
+		    screw_levels_table = screw_levels["B"]
+		    top_surface_name = "Bottom"
+		    t_z = big
+		    b_z = -big
 		elif top_surface == n:
-		    start_point = self.point_new(x, n.y, z)
-		    end_point = start_point.y_adjust(-depth)
+		    screw_levels_table = screw_levels["N"]
+		    top_surface_name = "North"
+		    n_y = big
+		    s_y = -big
 		elif top_surface == s:
-		    start_point = self.point_new(x, s.y, z)
-		    end_point = start_point.y_adjust(depth)
+		    screw_levels_table = screw_levels["S"]
+		    top_surface_name = "South"
+		    n_y = big
+		    s_y = -big
 		elif top_surface == e:
-		    start_point = self.point_new(e.x, y, z)
-		    end_point = start_point.x_adjust(-depth)
+		    screw_levels_table = screw_levels["E"]
+		    top_surface_name = "East"
+		    e_x = big
+		    w_x = -big
 		elif top_surface == w:
-		    start_point = self.point_new(w.x, y, z)
-		    end_point = start_point.x_adjust(depth)
+		    screw_levels_table = screw_levels["W"]
+		    top_surface_name = "West"
+		    e_x = big
+		    w_x = -big
 		else:
-		    assert False
+		    assert False, \
+		      "Unexpected top surface for part {0} is {1}". \
+		      format(self.name, top_surface)
 
-		# No do either a through hole or a hole to {depth}:
-		if not screw_level.done:
-		    thread = screw.thread
-		    flags = screw_level.flags
-		    #print "Part.screw_holes: part={0} screw={1}" + \
-		    #  " thread={2} flags={3}". \
-		    #  format(self.name, screw_level.screw.name, thread, flags)
-		    if depth <= Length.inch(0):
-			# Drill all the way through:
-			self.screw_through(screw.name,thread, \
-			  start_point, flags)
+	    if len(screw_levels_table) == 0:
+		assert errors_suppress, \
+		  "Part '{0}' does not have any attached holes on {1} surface".\
+		  format(self.name, top_surface_name)
+	    else:
+		for screw_level in screw_levels_table.values():
+		    #print "screw_level=", screw_level
+		    screw = screw_level.screw
+		    #print "screw.name=", screw.name
+		    trace = False
+		    #trace = screw.name.find("skin_west_bottom") >= 0
+
+		    # Grap {anchor_point_mapped} from {screw}:
+		    anchor_point_mapped = screw.anchor_point_mapped
+		    if trace:
+			print "=>Part.screw_holes({0})".format(self.name)
+			print "anchor_point_mapped={0}". \
+			  format(anchor_point_mapped)
+
+		    remap_matrix = screw_level.reverse_matrix
+		    if trace:
+			print "screw_level_forward_matrix=\n{0}". \
+			  format(screw_level.forward_matrix.mat	)
+			print "screw_level_reverse_matrix=\n{0}". \
+			  format(screw_level.reverse_matrix.mat)
+			#print "remap_matrix=\n{0}".format(remap_matrix.mat)
+		    anchor_point_remapped = \
+		      remap_matrix.point_multiply(anchor_point_mapped, self)
+		    x = anchor_point_remapped.x
+		    y = anchor_point_remapped.y
+		    z = anchor_point_remapped.z
+		    if trace:
+			bse = self.point("$BSE")
+			tnw = self.point("$TNW")
+			print "bse={0}".format(bse)
+			print "tnw={0}".format(tnw)
+			print "anchor_point_remapped={0}". \
+			  format(anchor_point_remapped)
+			#print \
+			#  "w_x={0} e_x={1} s_y={2} n_y={3} b_z={4} t_z={5}". \
+			#  format(w_x, e_x, s_y, n_y, b_z, t_z)
+
+		    # Make sure everything is in on the part:
+		    assert w_x <= x and x <= e_x, \
+		      ("X (={0}) for screw {1} not between {2}" + \
+		      " and {3} (part={4})"). \
+		      format(x, screw.name, w_x, e_x, self.name)
+		    assert s_y <= y and y <= n_y, \
+		      ("Y (={0}) for screw {1} not between {2}" + \
+		      " and {3} (part={4})"). \
+		      format(y, screw.name, s_y, n_y, self.name)
+		    assert b_z <= z and z <= t_z, \
+		      ("Z (={0}) for screw {1} not between {2}" + \
+		      " and {3} (part={4})"). \
+		      format(z, screw.name, b_z, t_z, self.name)
+
+		    # Compute {start_point} and {end_point} based on
+		    # {top_surface} and {depth}:
+		    depth = screw_level.depth
+		    if top_surface == t:
+			start_point = self.point_new(x, y, t.z)
+			end_point = start_point.z_adjust(-depth)
+		    elif top_surface == b:
+			start_point = self.point_new(x, y, b.z)
+			end_point = start_point.z_adjust(depth)
+		    elif top_surface == n:
+			start_point = self.point_new(x, n.y, z)
+			end_point = start_point.y_adjust(-depth)
+		    elif top_surface == s:
+			start_point = self.point_new(x, s.y, z)
+			end_point = start_point.y_adjust(depth)
+		    elif top_surface == e:
+			start_point = self.point_new(e.x, y, z)
+			end_point = start_point.x_adjust(-depth)
+		    elif top_surface == w:
+			start_point = self.point_new(w.x, y, z)
+			end_point = start_point.x_adjust(depth)
 		    else:
-			# Drill to the specified {end_point}:
-			self.screw_hole(screw.name, \
-			  thread, start_point, end_point, flags)
+			assert False
 
-		    # Remember that we did this {screw_level}:
-		    screw_level.done = True
+		    # No do either a through hole or a hole to {depth}:
+		    if not screw_level.done:
+			thread = screw.thread
+			flags = screw_level.flags
+			#print "Part.screw_holes: part={0} screw={1}" + \
+			#  " thread={2} flags={3}". \
+			#  format(self.name, screw_level.screw.name, \
+			#  thread, flags)
+			if depth <= Length.inch(0):
+			    # Drill all the way through:
+			    self.screw_through(screw.name,thread, \
+			      start_point, flags)
+			else:
+			    # Drill to the specified {end_point}:
+			    self.screw_hole(screw.name, \
+			      thread, start_point, end_point, flags)
 
-	    if trace:
-		print "<=Part.screw_holes({0})".format(self.name)
+			# Remember that we did this {screw_level}:
+			screw_level.done = True
+
+		if trace:
+		    print "<=Part.screw_holes({0})".format(self.name)
 
     def screw_level_find(self, screw_name):
 	""" Part internal: Return the {Screw_Level} associated with {screw_name}
@@ -2479,7 +2542,7 @@ class Part:
 	    xml_stream.write("{0}{1}\n". \
 	      format(" " * ezcad._xml_indent, xml_line))
 
-	self.manufacture()
+	self.construct()
 
 	# Output all of the XML for the child parts of *self* to *xml_stream*:
 	for child in children:
@@ -2671,45 +2734,47 @@ class Part:
 
 	    ezcad = self._ezcad
 	    xml_stream = ezcad._xml_stream
-	    xml_stream.write('{0}<Tooling_Plate Rows="{1}" '. \
-	      format(" " * ezcad._xml_indent, rows))
-	    xml_stream.write('Columns="{0}" Comment="{1}">\n'. \
-	      format(columns, comment))
+	    if xml_stream != None:
+		xml_stream.write('{0}<Tooling_Plate Rows="{1}" '. \
+		  format(" " * ezcad._xml_indent, rows))
+		xml_stream.write('Columns="{0}" Comment="{1}">\n'. \
+		  format(columns, comment))
 	    
-	    ezcad.xml_indent_push()
-	    for row in range(0, rows):
-		for column in range(0, columns):
-		    row_column = (row, column)
-		    adjust = (0, 0)
-		    if row_column in adjusts:
-			adjust = adjusts[row_column]
-		    remove = ""
-		    if row_column in removes:
-			remove = removes[row_column]
+		ezcad.xml_indent_push()
+		for row in range(0, rows):
+		    for column in range(0, columns):
+			row_column = (row, column)
+			adjust = (0, 0)
+			if row_column in adjusts:
+			    adjust = adjusts[row_column]
+			remove = ""
+			if row_column in removes:
+			    remove = removes[row_column]
 
-		    if trace:
-			print "[{0},{1}] = {2}{3}". \
-			  format(row, column, adjust, remove)
+			if trace:
+			    print "[{0},{1}] = {2}{3}". \
+			      format(row, column, adjust, remove)
 
-		    xml_stream.write('{0}<Tooling_Hole'. \
-		      format(" " * ezcad._xml_indent))
-		    xml_stream.write(' Row="{0}" Column="{1}"'. \
-		      format(row, column))
-		    xml_stream.write(' Adjust_X="{0}" Adjust_Y="{1}"'. \
-		      format(adjust[0], adjust[1]))
-		    xml_stream.write(' Flags="{0}"/>\n'. format(remove))
+			xml_stream.write('{0}<Tooling_Hole'. \
+			  format(" " * ezcad._xml_indent))
+			xml_stream.write(' Row="{0}" Column="{1}"'. \
+			  format(row, column))
+			xml_stream.write(' Adjust_X="{0}" Adjust_Y="{1}"'. \
+			  format(adjust[0], adjust[1]))
+			xml_stream.write(' Flags="{0}"/>\n'. format(remove))
 		    
-	    ezcad.xml_indent_pop()
-	    xml_stream.write('{0}</Tooling_Plate>\n'. \
-	     format(" " *ezcad._xml_indent))
+		ezcad.xml_indent_pop()
+		xml_stream.write('{0}</Tooling_Plate>\n'. \
+		  format(" " *ezcad._xml_indent))
 
     def tooling_plate_mount(self, comment):
 	""" Part construction: Cause the mounting plate that holds {self}
 	    to be mounted. """
 
 	#if self.construct_mode():
-	if True:
-	    ezcad = self._ezcad
+	ezcad = self._ezcad
+	xml_stream = ezcad._xml_stream
+	if xml_stream != None:
 	    ezcad._xml_stream.write( \
 	      '{0}<Tooling_Plate_Mount Comment="{1}"/>\n'. \
 	      format(" " * ezcad._xml_indent, comment))
@@ -2725,8 +2790,8 @@ class Part:
 	    aligned with one of the X, Y or Z axes. """
 
 	# Make sure we
-	assert not self.part_tree_mode(), \
-	  "Part.tube: Part '{0}' is in part tree mode".format(self.name)
+	#assert not self.part_tree_mode(), \
+	#  "Part.tube: Part '{0}' is in part tree mode".format(self.name)
 
 	# Compute {tube_axis}, the axis along with the tube is aligned:
 	tube_axis = end_point - start_point
@@ -2787,30 +2852,27 @@ class Part:
 	    w = x1
 	    e = x2
 
-	# Record the tube corners in {self}:
-	bsw = self.point_xyz_set("tube_corner_bsw", w, s, b)
-	tne = self.point_xyz_set("tube_corner_tne", e, n, t)
+	# Compute the tube corners:
+	bsw = self.point(w, s, b)
+	tne = self.point(e, n, t)
 	#print "bsw={0} tne={1}".format(bsw, tne)
 
 	# Record the material in {self}:
 	self.material = material
 
-	if self.dimensions_mode():
-            self.bounding_box_update(w, s, b, e, n, t)
+	#if self.dimensions_mode():
+        #    self.bounding_box_update(w, s, b, e, n, t)
+
+	self._bounding_box_update(w, s, b, e, n, t)
 
 	# In consturct mode, output the <Tube ...> line:
-	if self.construct_mode():
-	    ezcad = self.ezcad
-	    xml_stream = ezcad.xml_stream
-	    xml_stream.write('{0}<Tube'.format(ezcad._xml_indent))
-	    xml_stream.write(' SX="{0}" SY="{1}" SZ="{2}"'.format(x1, y1, z1))
-	    xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'.format(x2, y2, z2))
-	    xml_stream.write(
-	      ' Outer_Diameter="{0}" Wall_Thickness="{1}" Sides="{2}"'. \
-	      format(diameter, wall_thickness, sides))
-	    xml_stream.write(' Color="{0}" Transparency="{1}" Material="{2}"'. \
-	      format(color, self.transparency, material, self.name))
-	    xml_stream.write(' Comment="{0}"/>\n'.format(self.name))
+	#if self.construct_mode():
+	self._xml_lines.append( ('<Tube SX="{0}" SY="{1}" SZ="{2}"' + \
+	  ' EX="{3}" EY="{4}" EZ="{5}" Outer_Diameter="{6}"' + \
+	  ' Wall_Thickness="{7}" Sides="{8}" Color="{9}"' + \
+	  ' Transparency="{10}" Material="{11}" Comment="{12}"/>') . \
+	  format(x1, y1, z1, x2, y2, z2, diameter, wall_thickness, sides, 
+	  color, self._transparency, material, self._name))
 
     def value_lookup(self, path, flavor):
 	""" Part internal: Return the value for for {path} starting
@@ -2987,26 +3049,24 @@ class Part:
 	    left pointing edge of {self}.  {comment} is the attached
 	    to any generated G-code. """
 
-	# Only generate XML in construct_mode:
-	#if self.construct_mode():
-	if True:
-	    # Before we get too far, flush any pending screw holes
-	    # from the previous mounting:
-	    if self._top_surface_set:
-		self.screw_holes(True)
+	# Before we get too far, flush any pending screw holes
+	# from the previous mounting:
+	if self._top_surface_set:
+            self.screw_holes(True)
 
-	    # Extract some values from {ezcad}:
-	    ezcad = self._ezcad
-	    xml_indent = ezcad._xml_indent
-	    xml_stream = ezcad._xml_stream
+	# Extract some values from {ezcad}:
+	ezcad = self._ezcad
+	xml_indent = ezcad._xml_indent
+	xml_stream = ezcad._xml_stream
 
-	    corner1 = self.tne
-	    corner2 = self.bsw
-	    cx = (corner1.x + corner2.x).half()
-	    cy = (corner1.y + corner2.y).half()
-	    cz = (corner1.z + corner2.z).half()
+	corner1 = self.tne
+	corner2 = self.bsw
+	cx = (corner1.x + corner2.x).half()
+	cy = (corner1.y + corner2.y).half()
+	cz = (corner1.z + corner2.z).half()
 
-	    # <Vice_Position TX= TY= TZ= NX= NY= NZ= WX= WY= WZ= CX= CY= CZ=/>:
+	# <Vice_Position TX= TY= TZ= NX= NY= NZ= WX= WY= WZ= CX= CY= CZ=/>:
+	if xml_stream != None:
 	    xml_stream.write( \
 	      '{0}<Vice_Position TX="{1}" TY="{2}" TZ="{3}"'. \
 	      format(" " * xml_indent, surface_point.x, surface_point.y,
@@ -3018,8 +3078,8 @@ class Part:
 	      west_point.x, west_point.y, west_point.z))
 	    xml_stream.write(' CX="{0}" CY="{1}" CZ="{2}"'.format(cx, cy, cz))
 	    xml_stream.write(' Comment="{0}"/>\n'.format(comment))
-	    self._top_surface = surface_point
-	    self._top_surface_set = True
+	self._top_surface = surface_point
+	self._top_surface_set = True
 
 class Place:
     """ A {Place} represents the placement of a part relative to the
@@ -3145,6 +3205,7 @@ class Point:
     def __add__(self, point):
 	""" Point: Add {point} to {self}. """
 
+	assert isinstance(point, Point)
 	assert self.part == point.part, \
 	  "Can not add a point for part '%s' to a point for part '%s'" % \
 	   (self.part.name, point.part_name)
@@ -3161,6 +3222,7 @@ class Point:
     def __eq__(self, point):
 	""" Point: Return {True} if {self} is equal to {point}. """
 
+	assert isinstance(point, Point)
 	return self.x == point.x and self.y == point.y and self.z == point.z
 
     def __mul__(self, scalar):
@@ -3178,6 +3240,7 @@ class Point:
     def __ne__(self, point):
 	""" Point: Return {True} if {self} is not equal to {point}. """
 
+	assert isinstance(point, Point)
 	return self.x != point.x or self.y != point.y or self.z != point.z
 
     def __neg__(self):
@@ -3189,11 +3252,12 @@ class Point:
 	""" Point: Return {self} as a formatted string. """
 
 	return "('{0}': {1}, {2}, {3})".format( \
-	  self.part.name, self.x, self.y, self.z)
+	  self.part._name, self.x, self.y, self.z)
 
     def __sub__(self, point):
 	""" Point: Subtract {point} from {self}. """
 
+	assert isinstance(point, Point)
 	assert self.part == point.part, \
 	  "Can not subtract point for part '%s' from a point for part '%s'" % \
 	   (point.part.name, self.part.name)

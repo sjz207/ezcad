@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 from EZCAD2 import *
 
@@ -9,9 +9,9 @@ class Paste(Part):
 	""" Paste_Assembly: Initialize *self* to have """
 
 	# List the children {Part}'s in the {Part} tree:
-	#self.top = Top(self)
-	#self.holder = Holder(self)
+	self.holder = Holder(self)
 	self.wall = Wall(self)
+	self.top = Top(self)
 
 	# Initialize the parent class object:
 	Part.__init__(self, "paste", parent)
@@ -26,20 +26,17 @@ class Paste(Part):
 	self.dy = inch(2.000)
 	self.dx = inch(3.000)
 
-    def dimensions(self):
-	""" Paste:  Dimensions discovery mode. """
+    def construct(self):
+	""" Paste: Construction method. """
 
 	inch = Length.inch
 	zero = inch(0)
-
 	
-	self.place(self.wall, "west_wall",
-	  self.point(-self.dx.half(), zero, zero))
+	self.place(self.wall, "west_wall", self.o)
 	self.place(self.wall, "east_wall",
-	  self.point(self.dx.half(), zero, zero))
-
-    def manufacture(self):
-	pass
+	  self.point(self.dx - self.wall.thickness, zero, zero))
+	self.place(self.top, "top", self.o)
+	self.place(self.holder, "holder", self.o)
 
 class Top(Part):
 
@@ -47,49 +44,46 @@ class Top(Part):
 	""" Top: """
 
 	# Create the children {Part}'s in the {Part} tree:
-	self.shaft = Shaft(self)
+	#self.shaft = Shaft(self)
 	self.top_plate = Top_Plate(self)
+	self.shaft = Shaft(self)
 
 	# Initilize the {Part} parent class object:
 	Part.__init__(self, "top", parent)
 
-    def dimensions(self):
-	pass
-
-def top():
-    if top.dimensions_mode():
+    def construct(self):
 	inch = Length.inch
-	z = inch(0)
-	paste = top.part("..")
+	zero = inch(0)
 
-	top_plate_z = top_plate.length("top_plate_z")
-
-	# Place shaft:
-	shaft_place = top.point_xyz_set("shaft_place", z, z, top_plate_z.half())
-	top.place(shaft, "shaft", shaft_place)
-
-	# Place top plate:
-	top_plate_place = top.point_new(z, z, z)
-	top.place(top_plate, "top_plate", top_plate_place)
-    
-    return top.done()
+	self.place(self.top_plate, "top_plate", self.o)
+	self.place(self.shaft, "shaft", self.o)
 
 class Top_Plate(Part):
     """ top_plate design """
 
     def __init__(self, parent):
-
-	Part.__init__(self, "top_plate", parent)
-
-    def dimensions(self):
 	inch= Length.inch
 	zero = inch(0)
 
-	self.length_x = inch(4)
-	self.width_y = inch(1.75)
-	self.top_plate_z = inch(0.5)
-	shaft = self.parent.shaft
-	shaft_diameter = shaft.shaft_diameter
+	# Initilize the {Part} parent class object:
+	Part.__init__(self, "top_plate", parent)
+	self.thickness = inch("1/4")
+	self.shaft_depth = inch("1/8")
+
+    def construct(self):
+	inch= Length.inch
+	zero = inch(0)
+
+	top = self._parent
+	paste = top._parent
+	wall = paste.wall
+
+	#self.length_x = inch(4)
+	#self.width_y = inch(1.75)
+	#self.top_plate_z = inch(0.5)
+	#shaft = self.parent.shaft
+	#shaft_diameter = shaft.shaft_diameter
+
 	#shaft_depth = top_plate.length_set("shaft_depth", inch(3.0/8.0))
 	#collet_depth = top_plate.length_set("collet_depth", inch(0.1))
 	#collet_inside_diameter = inch(1.25)
@@ -159,8 +153,11 @@ class Top_Plate(Part):
 	#top_plate.extra_xyz(extra, extra, zero)
 	#xtn = top_plate.point("$XTN")
 	#xtw = top_plate.point("$XTW")
-	#
-	#top_plate.block_diagonal(diagonal, "dark_blue", "aluminum")
+
+	corner1 = self.point(wall.e.x, wall.s.y, wall.t.z - self.thickness)
+	corner2 = self.point(-wall.e.x, wall.n.y, wall.t.z)
+	#print "corner1={0} corner2={1}".format(corner1, corner2)
+	self.block_corners(corner1, corner2, "dark_blue", "aluminum")
 
 def top_plate(parent):
     if top_plate.construct_mode():
@@ -227,25 +224,21 @@ class Shaft(Part):
 	inch = Length.inch
 
 	# Initialize all accessible fields:
-	self.diameter = inch(0.75)
+	self.diameter = inch(0.750)
+	self.height = inch(1.500)
 
-    def dimensions(self):
+    def construct(self):
 	inch = Length.inch
 	zero = inch(0)
 
-	top = self.parent
+	top = self._parent
 	top_plate = top.top_plate
 
-	self.shaft_z = inch(1.375) + top_plate.shaft_depth
-	self.shaft_above = shaft_z - top_plate.shaft_depth
-  
-	self.rod_start = shaft.point_new(zero, zero, -self.top_plate_shaft_depth)
-	self.rod_end = shaft.point_new(zero, zero, self.shaft_above)
+	rod_b = self.point(zero, zero,
+	  top_plate.t.z - top_plate.shaft_depth)
+	rod_t = self.point_new(zero, zero, rod_b.z + self.height)
 
-	#shaft.rod("purple", "aluminum", rod_start, rod_end, shaft_diameter, 0)
-
-    def manufacture(self):
-	print "manufacture Shaft"
+	self.rod("purple", "aluminum", rod_b, rod_t, self.diameter, 0)
 
 def shaft_part(parent):
     if shaft.construct_mode():
@@ -267,8 +260,11 @@ class Wall(Part):
 
 	Part.__init__(self, "wall", parent)
 
-    def dimensions(self):
+    def construct(self):
 	""" Wall: """
+
+	inch = Length.inch
+	zero = inch(0.0)
 
 	## Find associated *Part*'s:
 	paste = self._parent
@@ -302,22 +298,17 @@ class Wall(Part):
 	#diagonal = top_plate.point_new(wall_thickness, width_y, \
     	#			       height_z - top_plate_z + collet_depth)
 
-	corner1 = self.point_new(-paste.dx.half(), -paste.dy.half(), -paste.dz.half())
+	corner1 = self.point_new(-paste.dx.half(),
+	  -paste.dy.half(), -paste.dz.half())
 	corner2 = self.point_new(-paste.dx.half() + self.thickness,
 	  paste.dy.half(), paste.dz.half())
 
 	self.block_corners(corner1, corner2, "green", "aluminum")
 
-    def manufacture(self):
-	""" {Wall}: """
-
-	inch = Length.inch
-	zero = inch(0.0)
-
 	extra = inch(0.25)
 	self.extra_xyz(zero, extra, extra)
 
-	print "Construct wall"
+	#print "Construct wall"
 	#self.chamfers(inch(0.025), zero)
 	self.vice_position("mount flat in vice", self.e, self.xne, self.xte)
 	#wall.tooling_plate("tooling plate", "1Ase 1Bsw 2Ae 2Bw")
@@ -335,14 +326,18 @@ class Holder(Part):
     """ paste design. """
 
     def __init__(self, parent):
+	inch = Length.inch
 
 	self.support = Support(self)
 	self.clamp = Clamp(self)
+
 	Part.__init__(self, "holder", parent)
 
-    def dimensions(self):
-	#inch = Length.inch
-	#z = inch(0)
+	self.syringe_diameter = inch(0.75)
+
+    def construct(self):
+	inch = Length.inch
+	zero = inch(0.0)
 
 	#clamp_y = clamp.length("clamp_y")
 
@@ -353,24 +348,30 @@ class Holder(Part):
 	## Place clamp:
 	#clamp_place = holder.point_new(z, -clamp_y.half(), z)
 	#holder.place(clamp, "clamp", clamp_place)
-	pass
+
+	self.place(self.support, "support", self.o)
+	self.place(self.clamp, "clamp", self.o)
 
 class Support(Part):
     """ Support design """
 
     def __init__(self, parent):
-	Part.__init__(self, "support", parent)
+	inch = Length.inch
 
-    def dimensions(self):
-	#inch= Length.inch
-	#zero = inch(0)
+	Part.__init__(self, "support", parent)
+	self.thickness = inch("1/4")
+
+    def construct(self):
+	inch = Length.inch
+	zero = inch(0.0)
 
 	## Find associated {Part}'s:
-	#holder = support.part("..")
-	#clamp = holder.part("clamp")
-	#paste = holder.part("..")
-	#top = paste.part("top")
-	#top_plate = top.part("top_plate")
+	holder = self._parent
+	#clamp = holder.clamp
+	paste = holder._parent
+	wall = paste.wall
+	top = paste.top
+	top_plate = top.top_plate
 
 	#clamp_y = clamp.length("clamp_y")
 	#support_x = \
@@ -380,22 +381,6 @@ class Support(Part):
 	#  support.length_set("support_z", top_plate.length("top_plate_z"))
 	#print "clamp_y=", clamp_y, "support_y=", support_y
 
-	## Get some bounding box points:
-	#o = support.point("$O")
-	#t = support.point("$T")
-	#e = support.point("$E")
-	#n = support.point("$N")
-	#w = support.point("$W")
-	#s = support.point("$S")
-	#ne = support.point("$NE")
-	#nw = support.point("$NW")
-	#sw = support.point("$SW")
-	#se = support.point("$SE")
-	#te = support.point("$TE")
-	#tn = support.point("$TN")
-	#ts = support.point("$TS")
-	#tw = support.point("$TW")
-	#bn = support.point("$BN")
 
 	## Extract some values from {clamp}:
 	#bridge_y = support_y - clamp_y
@@ -466,8 +451,10 @@ class Support(Part):
 	#xtn = support.point("$XTN")
 	#xtw = support.point("$XTW")
 
-	#support.block_diagonal(support_diagonal, "red", "plastic")
-	pass
+	corner1 = self.point(top_plate.w.x, top_plate.s.y, wall.b.z)
+	corner2 = self.point(top_plate.e.x,
+	  top_plate.n.y, wall.b.z + self.thickness)
+        self.block_corners(corner1, corner2, "red", "plastic")
 
 def support():
     if support.construct_mode():
@@ -512,17 +499,22 @@ class Clamp(Part):
     """ top_plate design """
 
     def __init__(self, parent):
+	inch = Length.inch
 	Part.__init__(self, "clamp", parent)
+	self.x_extra = inch(1.0)
 
-    def dimensions(self):
+    def construct(self):
 	# Some useful values:
-	inch= Length.inch
+	inch = Length.inch
 	zero = inch(0)
 
 	# Find associated {Part}'s:
 	holder = self._parent
-	assert holder._name == "holder"
+	paste = holder._parent
+	wall = paste.wall
 	support = holder.support
+
+	self.thickness = support.thickness
 
 	# Extract some values from {support}:
 	#support_y = support.support_y
@@ -531,7 +523,6 @@ class Clamp(Part):
 	# Define some values for {clamp}:
 	#support_hole_pitch = clamp.length_set("support_hole_pitch", inch(1.5))
 
-	#syringe_diameter = clamp.length_set("syringe_diameter", inch(0.75))
 	#clamp_x = clamp.length_set("clamp_x", syringe_diameter + inch(2))
 	#clamp_x_new = clamp.length_set("clamp_x_new", \
 	#			       syringe_diameter + inch(1.95))
@@ -551,16 +542,6 @@ class Clamp(Part):
 	#syringe_point_new = clamp.point_new(zero, clamp_y_new.half() \
 	#					+ inch(0.125), clamp_z.half())
 	# Lookup some bounding box values for {clamp}:
-	#o = clamp.point("$O")
-	#t = clamp.point("$T")
-	#b = clamp.point("$B")      
-	#w = clamp.point("$W")
-	#s = clamp.point("$S")
-	#nw = clamp.point("$NW")
-	#sw = clamp.point("$SW")
-	#tn = clamp.point("$TN")
-	#ts = clamp.point("$TS")
-	#tw = clamp.point("$TW")
 
 	#extra = inch(0.25)
 	#clamp.extra_xyz(extra, extra, zero)
@@ -568,8 +549,12 @@ class Clamp(Part):
 	#xtw = clamp.point("$XTW")
 
 	# Initialize the {clamp} material:
-	#clamp.block_diagonal(clamp_diagonal, "orange", "plastic")
-	pass
+	syringe_diameter = holder.syringe_diameter
+	corner1 = self.point(-syringe_diameter.half() - self.x_extra.half(),
+	  support.s.y, support.b.z)
+	corner2 = self.point(syringe_diameter.half() + self.x_extra.half(),
+	  zero, support.t.z)
+	self.block_corners(corner1, corner2, "orange", "plastic")
 
 def clamp_part(parent):
     if clamp.construct_mode():
