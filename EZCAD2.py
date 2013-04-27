@@ -985,10 +985,11 @@ class Part:
     def cnc_flush(self):
 	""" Part constuct: """
 
-	if self.construct_mode():
-	    ezcad = self.ezcad
-	    ezcad.xml_stream.write('{0}<CNC_Flush />\n'. \
-	      format(ezcad._xml_indent))
+	ezcad = self._ezcad
+	xml_stream = ezcad._xml_stream
+	if xml_stream != None:
+	    xml_stream.write('{0}<CNC_Flush />\n'. \
+	      format(" " * ezcad._xml_indent))
 
     def construct_mode(self):
 	""" Part dimensions: Return {True} if {self} should be constructed. """
@@ -1021,47 +1022,50 @@ class Part:
 	#  "Part.Contour: Called when Part {0} is not in consturct mode". \
 	#  format(self.name)
 
-	# Make sure we have some {corners} for the contour:
-	corners = self._corners
-	corners_size = len(corners)
-	assert corners_size >= 3, \
-	  "Part '{0}' only has {1} corners which is insufficient". \
-	  format(self._name, corners_size)
+	if xml_stream != None:
+	    # Make sure we have some {corners} for the contour:
+	    corners = self._corners
+	    corners_size = len(corners)
+	    assert corners_size >= 3, \
+	      "Part '{0}' only has {1} corners which is insufficient". \
+	      format(self._name, corners_size)
 
-	# Now figure out the desired order for {corners}.  Depending upon
-	# what {top_surface} is being used, we reverse the contour direction:
-	top_surface = self._top_surface
-	reverse = None
-	if top_surface == self.e:
-	    reverse = False
-	elif top_surface == self.w:
-	    reverse = True
-	elif top_surface == self.n:
-	    reverse = False
-	elif top_surface == self.s:
-	    reverse = True
-	elif top_surface == self.t:
-	    reverse = False
-	elif top_surface == self.b:
-	    reverse = False
-	assert reverse != None, \
-	  "Part {0} top surface must be one of $T, $B, $N, $S, $E, or $W". \
-	  format(self.name)
-	if reverse:
-            corners.reverse()
+	    # Now figure out the desired order for {corners}.  Depending upon
+	    # what {top_surface} is being used, we reverse the contour
+	    # direction:
+	    top_surface = self._top_surface
+	    reverse = None
+	    if top_surface == self.e:
+		reverse = False
+	    elif top_surface == self.w:
+		reverse = True
+	    elif top_surface == self.n:
+		reverse = False
+	    elif top_surface == self.s:
+		reverse = True
+	    elif top_surface == self.t:
+		reverse = False
+	    elif top_surface == self.b:
+		reverse = False
+	    assert reverse != None, \
+	      "Part {0} top surface must be one of T, B, N, S, E, or W". \
+	      format(self.name)
+	    if reverse:
+		corners.reverse()
 
-	# Now output {corners} and clear it for the next contour:
-	for corner in self._corners:
-	    xml_stream.write(corner)
-	self._corners = []
+	    # Now output {corners} and clear it for the next contour:
+	    for corner in self._corners:
+		xml_stream.write(corner)
+	    self._corners = []
 
-	# <Contour SX= SY= SZ= EX= EY= EZ= Extra= Flags= Comment= />:
-	xml_stream.write('{0}<Contour SX="{1}" SY="{2}" SZ="{3}"'. \
-	  format(" " * xml_indent, start_point.x, start_point.y, start_point.z))
-	xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'. \
-	  format(end_point.x, end_point.y, end_point.z))
-	xml_stream.write(' Extra="{0}" Flags="{1}" Comment="{2}"/>\n'. \
-	  format(extra, flags, comment))
+	    # <Contour SX= SY= SZ= EX= EY= EZ= Extra= Flags= Comment= />:
+	    xml_stream.write('{0}<Contour SX="{1}" SY="{2}" SZ="{3}"'. \
+	      format(" " * xml_indent,
+	      start_point.x, start_point.y, start_point.z))
+	    xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'. \
+	      format(end_point.x, end_point.y, end_point.z))
+	    xml_stream.write(' Extra="{0}" Flags="{1}" Comment="{2}"/>\n'. \
+	      format(extra, flags, comment))
 
     def contour_reverse(self):
 	""" """
@@ -1077,14 +1081,9 @@ class Part:
 	ezcad = self._ezcad
 	xml_stream = ezcad._xml_stream
 	if xml_stream != None:
-	    xml_indent = ezcad._xml_indent
-
-	    # Make sure we are in construct mode:
-	    #assert self.ezcad.construct_mode()
-
 	    corner_xml = \
 	      ('{0}<Corner Radius="{1}" CX="{2}" CY="{3}" CZ="{4}"' + \
-	      ' Comment="{5}"/>\n').format(" " * xml_indent,
+	      ' Comment="{5}"/>\n').format(" " * ezcad._xml_indent,
 	      radius, corner_point.x, corner_point.y, corner_point.z, comment)
 	    self._corners.append(corner_xml)
 
@@ -1436,7 +1435,7 @@ class Part:
 	self.point_xyz_set(kind + "_extrusion_corner_tne", e, n, t)
 
 	# Record the material in {self}:
-	self.material = material
+	self._material = material
 
 	if self.dimensions_mode():
             self.bounding_box_update(w, s, b, e, n, t)
@@ -1476,30 +1475,29 @@ class Part:
 		'm' hole is to be milled (i.e. Milled)
 	"""
 
-	assert self.construct_mode(), \
-	  "Part.hole('{0}'): Part '{1}' is not in construct mode.". \
-	  format(comment, self.name)
 
 	# Define some useful abbreviations:
 	inch = Length.inch
 	zero = inch(0)
 
 	# Extract some values from {ezcad}:
-	ezcad = self.ezcad
+	ezcad = self._ezcad
 	xml_indent = ezcad._xml_indent
-	xml_stream = ezcad.xml_stream
+	xml_stream = ezcad._xml_stream
 
-	# Output <Hole Diameter= Countersink_Diameter= ...
-	# ... SX= SY= SZ= EX= EY= EZ= Flags= Comment= />:
-	countersink_diameter = zero
-	xml_stream.write('{0}<Hole Diameter="{1}" Countersink_Diameter="{2}"'. \
-	  format(xml_indent, diameter, countersink_diameter))
-	xml_stream.write(' SX="{0}" SY="{1}" SZ="{2}"'. \
-	  format(start_point.x, start_point.y, start_point.z))
-	xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'. \
-	  format(end_point.x, end_point.y, end_point.z))
-	xml_stream.write(' Flags="{0}" Comment="{1}"/>\n'. \
-	  format(flags, comment))
+	if xml_stream != None:
+	    # Output <Hole Diameter= Countersink_Diameter= ...
+	    # ... SX= SY= SZ= EX= EY= EZ= Flags= Comment= />:
+	    countersink_diameter = zero
+	    xml_stream.write( \
+	      '{0}<Hole Diameter="{1}" Countersink_Diameter="{2}"'. \
+	      format(" " * xml_indent, diameter, countersink_diameter))
+	    xml_stream.write(' SX="{0}" SY="{1}" SZ="{2}"'. \
+	      format(start_point.x, start_point.y, start_point.z))
+	    xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'. \
+	      format(end_point.x, end_point.y, end_point.z))
+	    xml_stream.write(' Flags="{0}" Comment="{1}"/>\n'. \
+	      format(flags, comment))
 	
     def hole_through(self, comment, diameter, start_point, flags, \
       countersink_diameter = Length.inch(0)):
@@ -1514,28 +1512,28 @@ class Part:
 		'l' lower hole edge should be chamfered (i.e. Lower)
 	"""
 
-	assert self.construct_mode(), \
-	  "Part.hole_through('{0}'): Part {1} is not in contruct mode". \
-	  format(comment, self.name)
+	ezcad = self._ezcad
+	xml_stream = ezcad._xml_stream
 
-	# Define some useful abbreviations:
-	inch = Length.inch
-	zero = inch(0)
+	if xml_stream != None:
 
-	# Extract some values from {ezcad}:
-	ezcad = self.ezcad
-	xml_indent = ezcad._xml_indent
-	xml_stream = ezcad.xml_stream
+	    # Define some useful abbreviations:
+	    inch = Length.inch
+	    zero = inch(0)
 
-	# Write out <Hole_Through Diameter= SX= SY= SZ= Flags= Comment= />:
-	xml_stream.write('{0}<Hole_Through Diameter="{1}"'. \
-	  format(xml_indent, diameter))
-	xml_stream.write(' Countersink_Diameter="{0}"'. \
-	  format(countersink_diameter))
-	xml_stream.write(' SX="{0}" SY="{1}" SZ="{2}"'. \
-	  format(start_point.x, start_point.y, start_point.z))
-	xml_stream.write(' Flags="{0}" Comment="{1}"/>\n'. \
-	  format(flags, comment))
+	    # Extract some values from {ezcad}:
+	    ezcad = self._ezcad
+	    xml_indent = ezcad._xml_indent
+
+	    # Write out <Hole_Through Diameter= SX= SY= SZ= Flags= Comment= />:
+	    xml_stream.write('{0}<Hole_Through Diameter="{1}"'. \
+	      format(" " * xml_indent, diameter))
+	    xml_stream.write(' Countersink_Diameter="{0}"'. \
+	      format(countersink_diameter))
+	    xml_stream.write(' SX="{0}" SY="{1}" SZ="{2}"'. \
+	      format(start_point.x, start_point.y, start_point.z))
+	    xml_stream.write(' Flags="{0}" Comment="{1}"/>\n'. \
+	      format(flags, comment))
 
     def length(self, length_path):
 	""" Part dimensions: Return the {Angle} associated with {length_path}
@@ -2125,7 +2123,7 @@ class Part:
 		drill_name = None
 		if flags.find("d") >= 0:
 		    # threaDed:
-		    if self.material.find("steel") == 0:
+		    if self._material.find("steel") == 0:
 			# Hard material => 50% tap:
 			drill_name = values[3]
 		    else:
@@ -2185,7 +2183,7 @@ class Part:
 
 	    if flags.find("d") >= 0:
 		# threaDed:
-		if self.material.find("steel") == 0:
+		if self._material.find("steel") == 0:
 		    # Hard material => 50% tap:
 		    diameter = values[1]
 		else:
@@ -2240,6 +2238,13 @@ class Part:
 		'i' imperial vs. metric swapping allowed (i.e. Interchangeable)
 		'a' counterink hole for a flAthead screw
 	"""
+
+	# Check argument types:
+	assert isinstance(comment, str)
+	assert isinstance(screw, str)
+	assert isinstance(start_point, Point)
+	assert isinstance(end_point, Point)
+	assert isinstance(flags, str)
 
 	#print "Part.screw_hole: Part={0} screw={1} flags={2}". \
 	#  format(self.name, screw, flags)
@@ -2495,24 +2500,20 @@ class Part:
 	      format(comment, flag, flags, self.name)
 
 	# Extract some values from {ezcad}:
-	ezcad = self.ezcad
+	ezcad = self._ezcad
 	xml_indent = ezcad._xml_indent
-	xml_stream = ezcad.xml_stream
+	xml_stream = ezcad._xml_stream
 
-	# Make sure we are in construct mode:
-	assert self.ezcad.construct_mode(), \
-	  "simple_pocket('{0}'): Part {1} is not in consturct mode". \
-	  format(comment, self.name)
-
-	# <Simple_Pocket C1X= C1Y= C1Z= C2X= C2Y= C2Z= ...
-	#  ... Radius= Flags= Comment= />:
-	xml_stream.write('{0}<Simple_Pocket'.format(xml_indent))
-	xml_stream.write(' C1X="{0}" C1Y="{1}" C1Z="{2}"'. \
-	  format(corner1_point.x, corner1_point.y, corner1_point.z))
-	xml_stream.write(' C2X="{0}" C2Y="{1}" C2Z="{2}"'. \
-	  format(corner2_point.x, corner2_point.y, corner2_point.z))
-	xml_stream.write(' Radius="{0}" Flags="{1}" Comment="{2}"/>\n'. \
-	  format(radius, flags, comment))
+	if xml_stream != None:
+	    # <Simple_Pocket C1X= C1Y= C1Z= C2X= C2Y= C2Z= ...
+	    #  ... Radius= Flags= Comment= />:
+	    xml_stream.write('{0}<Simple_Pocket'.format(" " * xml_indent))
+	    xml_stream.write(' C1X="{0}" C1Y="{1}" C1Z="{2}"'. \
+	      format(corner1_point.x, corner1_point.y, corner1_point.z))
+	    xml_stream.write(' C2X="{0}" C2Y="{1}" C2Z="{2}"'. \
+	      format(corner2_point.x, corner2_point.y, corner2_point.z))
+	    xml_stream.write(' Radius="{0}" Flags="{1}" Comment="{2}"/>\n'. \
+	      format(radius, flags, comment))
 
     def manufacture(self):
 	""" Part: Override this method to do any manufacturing steps. """
@@ -2858,7 +2859,7 @@ class Part:
 	#print "bsw={0} tne={1}".format(bsw, tne)
 
 	# Record the material in {self}:
-	self.material = material
+	self._material = material
 
 	#if self.dimensions_mode():
         #    self.bounding_box_update(w, s, b, e, n, t)
@@ -3022,25 +3023,22 @@ class Part:
 	      format(comment, flag, flags, self.name)
 
 	# Extract some values from {ezcad}:
-	ezcad = self.ezcad
+	ezcad = self._ezcad
 	xml_indent = ezcad._xml_indent
-	xml_stream = ezcad.xml_stream
+	xml_stream = ezcad._xml_stream
 
-	# Make sure we are in construct mode:
-	assert self.ezcad.construct_mode(), \
-	  "vertical_lathe('{0}': Part {1} is not in consturct mode". \
-	  format(comment, self.name)
-
-	# <Contour SX= SY= SZ= EX= EY= EZ= Engagement= Flags= Comment= />:
-	xml_stream.write('{0}<Vertical_Lathe'.format(xml_indent))
-	xml_stream.write(' SX="{0}" SY="{1}" SZ="{2}"'. \
-	  format(axis_start_point.x, axis_start_point.y, axis_start_point.z))
-	xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'. \
-	  format(axis_end_point.x, axis_end_point.y, axis_end_point.z))
-	xml_stream.write(' Inner_Diameter="{0}" Outer_Diameter="{1}"'. \
-	  format(inner_diameter, outer_diameter))
-	xml_stream.write(' Flags="{0}" Comment="{1}"/>\n'. \
-	  format(flags, comment))
+	if xml_stream != None:
+	    # <Contour SX= SY= SZ= EX= EY= EZ= Engagement= Flags= Comment= />:
+	    xml_stream.write('{0}<Vertical_Lathe'.format(" " * xml_indent))
+	    xml_stream.write(' SX="{0}" SY="{1}" SZ="{2}"'. \
+	      format(axis_start_point.x, axis_start_point.y,
+	      axis_start_point.z))
+	    xml_stream.write(' EX="{0}" EY="{1}" EZ="{2}"'. \
+	      format(axis_end_point.x, axis_end_point.y, axis_end_point.z))
+	    xml_stream.write(' Inner_Diameter="{0}" Outer_Diameter="{1}"'. \
+	      format(inner_diameter, outer_diameter))
+	    xml_stream.write(' Flags="{0}" Comment="{1}"/>\n'. \
+	      format(flags, comment))
 
     def vice_position(self, comment, surface_point, north_point, west_point):
 	""" Part construct: Cause {self} to be mounted in a vice with
