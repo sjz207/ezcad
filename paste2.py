@@ -2,14 +2,16 @@
 
 from EZCAD2 import *
 
+# These two values are used all over the place:
 inch = Length.inch
 zero = inch(0.0)
 
 class Paste(Part):
-    """ Paste: Solder paste holder assembly. """ 
+    """ {Paste}: Solder paste holder assembly. """ 
 
     def __init__(self, parent):
-	""" Paste_Assembly: Initialize *self* to have """
+	""" {Paste}: Initialize the paste assembly to contain
+	    the top assembly, wall, and bottom holder. """
 
 	# List the children {Part}'s in the {Part} tree:
 	self.holder = Holder(self)
@@ -25,7 +27,8 @@ class Paste(Part):
 	Part.__init__(self, "paste", parent)
 
     def construct(self):
-	""" Paste: Construction method. """
+	""" {Paste}: Construct the final paste assembly that consists of the
+	    top assembly, two walls, and the bottom holder. """
 
 	self.place(self.wall, "west_wall", self.o)
 	self.place(self.wall, "east_wall",
@@ -34,43 +37,65 @@ class Paste(Part):
 	self.place(self.holder, "holder", self.o)
 
 class Top(Part):
+    """ {Top}: Top assembly. """
 
     def __init__(self, parent):
-	""" Top: """
+	""" {Top}: Initialize the top assembly the consists of the shaft
+	    and top plate. """
 
 	# Create the children {Part}'s in the {Part} tree:
-	#self.shaft = Shaft(self)
+	self.shaft = Shaft(self)
 	self.top_plate = Top_Plate(self)
 	self.shaft = Shaft(self)
+	self.collet_depth = inch(0.100)
 
 	# Initilize the {Part} parent class object:
 	Part.__init__(self, "top", parent)
 
     def construct(self):
+	""" {Top}: Contruct the top assembly consisting of the shaft and the
+	    top plate. """
+
 	self.place(self.top_plate, "top_plate", self.o)
-	#self.place(self.shaft, "shaft", self.o)
+	self.place(self.shaft, "shaft", self.o)
 
 class Top_Plate(Part):
-    """ top_plate design """
+    """ {Top_Plate}: The top plate connects the shaft to the two walls. """
 
     def __init__(self, parent):
+	""" {Top_Plate}: Initialize the top plate. """
+
 	# Initilize the {Part} parent class object:
 	Part.__init__(self, "top_plate", parent)
-	self.thickness = inch("1/4")
+	self.original_thickness = inch("1/2")
 	self.shaft_depth = inch("1/8")
+	self.final_thickness = zero
 
     def construct(self):
+	""" {Top_Plate}: Construct the top plate. """
+
+	# Extract the various {Part}'s:
 	top = self._parent
 	shaft = top.shaft
 	paste = top._parent
 	wall = paste.wall
 
+	# Update {final_thickness}:
+	final_thickness = \
+	  self.final_thickness = self.original_thickness - top.collet_depth
+
+	# Construct the original block.  This is a little tricky, becuase
+	# the we want the top edge of {final_thickness} to align with the
+	# top of the walls:
 	extra = inch(0.25)
 	self.extra_xyz(extra, extra, zero)
-	corner1 = self.point(wall.e.x, wall.s.y, wall.t.z - self.thickness)
-	corner2 = self.point(-wall.e.x, wall.n.y, wall.t.z)
+	corner1 = self.point(wall.e.x, wall.s.y,
+	  wall.t.z - self.final_thickness)
+	corner2 = self.point(-wall.e.x, wall.n.y,
+	  wall.t.z - self.final_thickness + self.original_thickness)
 	self.block_corners(corner1, corner2, "dark_blue", "aluminum")
 
+	# Mount up the block:
 	self.vice_position("mount flat in vice", self.t, self.xtn, self.xtw)
 	self.tooling_plate("tooling plate", "1As 1Bs")
 	self.tooling_plate_mount("mount tooling plate")
@@ -79,76 +104,109 @@ class Top_Plate(Part):
 	self.screw_through("center", "6-32", self.t, "c")
 	self.cnc_flush()
 
+	# Machine out a pocket for the shaft:
 	shaft_depth = inch("3/8")
 	collet_inside_diameter = inch(1.250)
 	collet_outside_diameter = inch(1.500)
-	collet_depth = inch(0.100)
+	collet_depth = top.collet_depth
 	collet_depth_point = self.point(zero, zero, self.t.z - collet_depth)
 	shaft_depth_point = self.point(zero, zero, self.t.z - shaft_depth)
+
 	self.hole("inside collet", collet_inside_diameter,
 	  self.t, collet_depth_point, "m")
 	self.hole("shaft hole", shaft.diameter + inch(0.010), self.t,
 	  shaft_depth_point, "m")
 
+	# Remove a bunch of material from around the collet:
 	self.vertical_lathe("outside collet", \
 	  self.t, collet_depth_point, collet_outside_diameter, \
 	  collet_outside_diameter + inch(1.25), "")
-	left_pocket1 = self.point(self.w.x - inch(0.25),
-	  self.s.y - inch("1/16"), self.t.z - collet_depth)
-	left_pocket2 = \
-	  self.point_new(-collet_outside_diameter.half() - inch(0.05),
-	  self.n.y + inch("1/16"), self.t.z)
-	right_pocket1 = self.point( \
-	  collet_outside_diameter.half() + inch(0.05),
-	  self.s.y - inch("1/16"), self.t.z - collet_depth)
-	right_pocket2 = self.point(self.e.x + inch(0.25),
-	  self.n.y + inch("1/16"), self.t.z)
+
+	# Remove the remaining stuff after the vertical lathe using
+	# a left and right simple pocket:
+	left_w = self.w.x - inch(0.25)
+	left_e = -collet_outside_diameter.half() - inch(0.05)
+	left_s = self.s.y - inch("1/16")
+	left_n = self.n.y + inch("1/16")
+	left_b = self.t.z - collet_depth
+	left_t = self.t.z
 
 	self.simple_pocket("left pocket",
-	  left_pocket1, left_pocket2, inch(0.25), "")
+	  self.point(left_w, left_s, left_b),
+	  self.point(left_e, left_n, left_t), inch(0.25), "")
+
+	right_w = collet_outside_diameter.half() + inch(0.05)
+	right_e = self.e.x + inch(0.25)
+	right_s = self.s.y - inch("1/16")
+	right_n = self.n.y + inch("1/16")
+	right_b = self.t.z - collet_depth
+	right_t = self.t.z
+
 	self.simple_pocket("right pocket",
-	  right_pocket1, right_pocket2, inch(0.25), "")
+	  self.point(right_w, right_s, right_b),
+	  self.point(right_e, right_n, right_t), inch(0.25), "")
 
 	# Relief Hole Locations:
-	relief_diameter = inch("7/32")
+	relief_diameter = inch("5/16")
 	wall_dy_pitch = wall.dy_pitch
 	relief_dx = inch("3/8")
-	nw_relief = self.point(self.w.x + relief_dx,
-	  wall_dy_pitch.half(), self.t.z)
-	sw_relief = self.point(self.w.x + relief_dx,
-	  -wall_dy_pitch.half(), self.t.z)
-	ne_relief = self.point(self.e.x - relief_dx,
-	  wall_dy_pitch.half(), self.t.z)
-	se_relief = self.point(self.e.x - relief_dx,
-	  -wall_dy_pitch.half(), self.t.z)
+	relief_w = self.w.x + relief_dx
+	relief_e = self.e.x - relief_dx
+	relief_n = wall_dy_pitch.half()
+	relief_s = -relief_n
+	relief_z = self.t.z
 
 	# Mill relief holes after pockets:
 	self.cnc_flush()
+	self.hole_through("NW relief hole", relief_diameter,
+	  self.point(relief_w, relief_n, relief_z), "u")
+	self.hole_through("NE relief hole", relief_diameter,
+	  self.point(relief_e, relief_n, relief_z), "u")
+	self.hole_through("SW relief hole", relief_diameter,
+	  self.point(relief_w, relief_s, relief_z), "u")
+	self.hole_through("SE relief hole", relief_diameter,
+	  self.point(relief_e, relief_s, relief_z), "u")
 
-	self.hole_through("NW relief hole", relief_diameter, nw_relief, "u")
-	self.hole_through("NE relief hole", relief_diameter, ne_relief, "u")
-	self.hole_through("relief hole SW", relief_diameter, sw_relief, "u")
-	self.hole_through("relief hole SE", relief_diameter, se_relief, "u")
+	# Trim the outer boundary:
+	self.boundary_trim("Exterior Trim", inch("1/16"), "t")
 
-	if False:
-	    self.boundary_trim("Exterior Trim", inch("1/16"), "t")
+	# Make wall mounting holes:
 
-	    # Make wall mounting holes:
-	    self.vice_position("mount edge on in vice", w, bw, sw)
-	    self.screw_hole("top plate NW side hole", "6-32", \
-				 hole_place_nw, hole_place_nw_end, "du")
-	    self.screw_hole("top plate SW side hole", "6-32", \
-				 hole_place_sw, hole_place_sw_end, "du")
-	    self.vice_position("mount edge on in vice", e, be, ne)
-	    self.screw_hole("top plate NE side hole", "6-32", \
-				 hole_place_ne, hole_place_ne_end, "du")
-	    self.screw_hole("top plate SE side hole", "6-32", \
-				 hole_place_se, hole_place_se_end, "du")
-	    #print "w=", w, "tw=", tw, "nw=", nw
+	# Specify the various wall coordinates:
+	wall_z = self.b.z + self.final_thickness.half()
+	wall_w_start = self.w.x
+	wall_w_end = wall_w_start + relief_dx
+	wall_e_start = self.e.x
+	wall_e_end = wall_e_start - relief_dx
+	wall_n = wall_dy_pitch.half()
+	wall_s = -wall_n
+
+	# Mount it up and do the west edge holes:
+	self.vice_position("Mount West edge up in vice",
+	  self.w, self.bw, self.sw)
+	self.screw_hole("NW wall hole", "6-32",
+	  self.point(wall_w_start, wall_n, wall_z),
+	  self.point(wall_w_end, wall_n, wall_z), "du")
+	self.screw_hole("SW wall hole", "6-32",
+	  self.point(wall_w_start, wall_s, wall_z),
+	  self.point(wall_w_end, wall_s, wall_z), "du")
+
+	# Mount it up and do the east edge holes:
+	self.vice_position("Mount East edge up on in vice",
+	  self.e, self.be, self.ne)
+	self.screw_hole("NE wall hole", "6-32", \
+	  self.point(wall_e_start, wall_n, wall_z),
+	  self.point(wall_e_end, wall_n, wall_z), "du")
+	self.screw_hole("SE wall hole", "6-32", \
+	  self.point(wall_e_start, wall_s, wall_z),
+	  self.point(wall_e_end, wall_s, wall_z), "du")
 
 class Shaft(Part):
+    """ {Shaft} to mount into mill spindle. """
+
 
     def __init__(self, parent):
+	""" {Shaft}: Initialize shaft. """
 
 	# Initialize the parent class object:
 	Part.__init__(self, "shaft", parent)
@@ -158,28 +216,24 @@ class Shaft(Part):
 	self.height = inch(1.500)
 
     def construct(self):
+	""" {Shaft}: Construct shaft. """
 	top = self._parent
 	top_plate = top.top_plate
 
-	rod_b = self.point(zero, zero,
+	rod_bottom = self.point(zero, zero,
 	  top_plate.t.z - top_plate.shaft_depth)
-	rod_t = self.point_new(zero, zero, rod_b.z + self.height)
+	rod_top = self.point_new(zero, zero, rod_bottom.z + self.height)
 
-	self.rod("purple", "aluminum", rod_b, rod_t, self.diameter, 0)
+	self.rod("purple", "aluminum", rod_bottom, rod_top, self.diameter, 0)
 
-def shaft_part(parent):
-    if shaft.construct_mode():
-	    print "Construct shaft"
-	    shaft.vice_position("mount in vice long-wise", b, bn, be)
-	    shaft.screw_hole("center", "6-32", b, o, "pdu")
-
-    return shaft.done()
+	#self.vice_position("mount in vice long-wise", self.b, self.bn, self.be)
+	#self.screw_hole("center", "6-32", self.b, self.o, "pdu")
 
 class Wall(Part):
-    """ side wall design """
+    """ {Wall}: side wall """
 
     def __init__(self, parent):
-	""" Part: Initialize *self* with *parent* and *coordinates*. """
+	""" {Wall}: Initialize side wall. """
 
 	paste = parent
 	self.thickness = inch("1/8")
@@ -188,7 +242,7 @@ class Wall(Part):
 	Part.__init__(self, "wall", parent)
 
     def construct(self):
-	""" Wall: """
+	""" Wall: Construct side wall. """
 
 	paste = self._parent
 	top = paste.top
@@ -214,19 +268,20 @@ class Wall(Part):
 	self.tooling_plate_mount("Mount on tooling plate")
 	self.boundary_trim("Exterior Trim", inch("1/16"), "t")
 
-	self.screw_through("TNW", "6-32",
-	  self.point(self.w.x, dy_pitch.half(), top_plate.w.z), "u")
-	self.screw_through("TSW", "6-32",
-	  self.point(self.w.x, -dy_pitch.half(), top_plate.w.z), "u")
+	self.screw_through("TNW", "6-32", self.point(self.w.x, dy_pitch.half(),
+	  self.t.z - top_plate.final_thickness.half()), "u")
+	self.screw_through("TSW", "6-32", self.point(self.w.x, -dy_pitch.half(),
+	  self.t.z - top_plate.final_thickness.half()), "u")
 	self.screw_through("BNW", "6-32",
 	  self.point(self.w.x, dy_pitch.half(), support.w.z), "u")
 	self.screw_through("BSW", "6-32",
 	  self.point(self.w.x, -dy_pitch.half(), support.w.z), "u")
     
 class Holder(Part):
-    """ paste design. """
+    """ {Holder}: Bottom holder for paste syringe. """
 
     def __init__(self, parent):
+	""" {Holder}: Initalize bottom holder assembly. """
 	self.support = Support(self)
 	self.clamp = Clamp(self)
 
@@ -235,17 +290,22 @@ class Holder(Part):
 	self.syringe_diameter = inch(0.75)
 
     def construct(self):
+	""" {Holder}: Construct bottom holder assembly. """
+
 	self.place(self.support, "support", self.o)
 	self.place(self.clamp, "clamp", self.o)
 
 class Support(Part):
-    """ Support design """
+    """ {Support}: Support the clamps on one half of the solder syringe. """
 
     def __init__(self, parent):
+	""" {Support}: Initialize the support."""
 	self.thickness = inch("1/4")
 	Part.__init__(self, "support", parent)
 
     def construct(self):
+	""" {Support}: Construct the support. """
+
 	# Find associated {Part}'s:
 	holder = self._parent
 	clamp = holder.clamp
@@ -327,13 +387,17 @@ class Support(Part):
 	  e_hole_start, w_hole_end, "du")
 
 class Clamp(Part):
-    """ top_plate design """
+    """ {Clamp}: Clamp that presses the solder syringe into the support. """
 
     def __init__(self, parent):
+	""" {Clamp}: Initialize clamp object. """
+
 	Part.__init__(self, "clamp", parent)
 	self.support_hole_pitch = zero
 
     def construct(self):
+	""" {Clamp}: Construct the clamp to press against solder syringe. """
+
 	# Find associated {Part}'s:
 	holder = self._parent
 	support = holder.support
@@ -376,5 +440,6 @@ class Clamp(Part):
 	self.screw_through("side hole", "6-32", hole_place_w, "u")
 	self.screw_through("side hole", "6-32", hole_place_e, "u")
 
+# Create the {Paste} assembly, generate VRML (.wrl) and CNC (.ngc) files:
 paste = Paste(None)
 paste.process()
