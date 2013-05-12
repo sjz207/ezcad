@@ -49,6 +49,7 @@ gm3_mount_top.py
 grip.py
 pcb_tool_plate.py
 paste.py
+pnp.py
 robot.py
 stencil_jig.py
 

@@ -1,6 +1,6 @@
 easy_c 1.0
 
-# Copyright (c) 2011 by Wayne C. Gramlich.  All rights reserved.
+# Copyright (c) 2011-2013 by Wayne C. Gramlich.  All rights reserved.
 
 # EZCAD stands for EZ (Easy) Computer Aided Design.  It is a library of code
 # that can be used to design and manufacture objects using a CNC mill.
@@ -903,6 +903,7 @@ define Tool				# Available tool
 	flutes_count Unsigned		# Number of flutes or teeth
 	maximum_z_depth Length		# Maximum Z depth allowed
 
+	search_results Array[String]	# Result of array search
 	priority Double			# Priority in tool search
 	feed Speed			# Nominal feedrate
 	spindle Hertz 			# Preferred spindle speed
@@ -7172,9 +7173,9 @@ routine cnc_generate@Operation_Dowel_Pin
     z_stop :@= dowel_pin.z_stop
     tip_depth :@= dowel_pin.tip_depth
 
-    call line_comment@(code, form@("%v% Initial Dimensions: %i% x %i% x %i%") %
-      f@(part.name) % f@(dowel_pin.original_x) %
-      f@(dowel_pin.original_y) / f@(dowel_pin.original_z))
+    call line_comment@(code, form@("%v% Initial Dimensions: %i% x %i% x %i%!") %
+      f@(part.name) % f@(part.dx_original) %
+      f@(part.dy_original) / f@(part.dz_original))
 
     call xy_rapid@(code, plunge_x, plunge_y)
 
@@ -8495,6 +8496,10 @@ routine block_create@Part
     part.z_floor := code_length@(in@(-1.5))
     part.z_rapid := code_length@(in@(0.1))
     part.z_safe := code_length@(in@(0.5))
+
+    #call d@(form@("block_create@Part: name=%v% dx=%i% dy=%i% dz=%i%\n") %
+    #  f@(part.name) % f@(part.dx_original) % f@(part.dy_original) /
+    #  f@(part.dz_original))
 
     part.plate := create@Part_Plate(zero, zero, zero)
 
@@ -10934,10 +10939,6 @@ routine plate_create@Part
     # of {material} of nominial size {dx} by {dy} by {dz}.  The initial
     # size of {dx} and {dy} is incremented by {extra}.
 
-    #call d@(form@(
-    #  "plate_create@Part(dx=%i%, dy=%i%, dz=%i%, extrat=%i%)\n\") %
-    #  f@(dx) % f@(dy) % f@(dz) / f@(extra))
-
     # Create and fill in {part}:
     zero :@= in@(0.0)
     part :@= create@Part(name, shop)
@@ -10957,6 +10958,11 @@ routine plate_create@Part
     part.z_floor := code_length@(in@(-1.5))
     part.z_rapid := code_length@(in@(0.1))
     part.z_safe := code_length@(in@(0.5))
+
+    call d@(form@(
+      "plate_create@Part(name=%v% dx=%i%, dy=%i%, dz=%i%, extrat=%i%)\n\") %
+      f@(name) % f@(part.dx_original) % f@(part.dy_original) %
+      f@(part.dz_original) / f@(extra))
 
     part.plate := create@Part_Plate(radius, extra, extra)
 
@@ -11851,23 +11857,52 @@ routine simple_pocket@Part
 	call binary_operation@(part, "diff", pocket_hash, "pocket")
 
     if part.cnc_generate
-	diameter :@= smul@(corner_radius, 2.0)
-	end_mill :@=
-	  tools_end_mill_search@(part, diameter, z_stop, "simple_pocket")
-
-	tool_diameter :@= end_mill.diameter
-	tool_radius :@= half@(tool_diameter)
-
-	# Now schedule the pocket operation:
-	if end_mill == null@Tool
+	# Compute the minimum distance across pocket:
+	zero :@= in@(0.0)
+	dx :@= x1 - x2
+	if dx < zero
+	    dx := -dx
+	dy :@= y1 - y2
+	if dy < zero
+	    dy := -dy
+	minimum_dx_dy :@= dx
+	if dy < minimum_dx_dy
+	    minimum_dx_dy := dy
+	
+	# Make sure that tool diameter can fit in the pocket:
+	maximum_diameter :@= smul@(corner_radius, 2.0)
+	if minimum_dx_dy < maximum_diameter
 	    call d@(form@(
-	      "No tool: simple pocket=%v% part=%v% radius=%i% z_stop=%i%\n\") %
-	      f@(comment) % f@(part.name) % f@(corner_radius) / f@(z_stop))
-    	else
-	    call operation_simple_pocket_append@(part, comment,
-	      end_mill_simple_pocket@Operation_Order, end_mill, null@Operation,
-	      x1, y1, x2, y2, z_start, z_stop, corner_radius, tool_radius,
-	      pocket_kind)
+	      "%v%:%v%: (min pocket width)/2 (%i%) < corner radius (%i%)\n") %
+	      f@(part.name) % f@(comment) % f@(half@(minimum_dx_dy)) /
+	      f@(corner_radius))
+	else
+	    # Search for an end mill that can do the job:
+	    dz :@= z_start - z_stop
+	    end_mill :@= tools_end_mill_search@(part,
+	      maximum_diameter, dz, "simple_pocket")
+
+	    tool_diameter :@= end_mill.diameter
+	    tool_radius :@= half@(tool_diameter)
+
+	    # Now schedule the pocket operation:
+	    if end_mill == null@Tool
+		call d@(form@(
+		  "No tool: simple pocket=%v% part=%v% radius=%i% dz=%i%\n\") %
+		  f@(comment) % f@(part.name) % f@(corner_radius) / f@(dz))
+
+		# For debugging:
+		end_mill := tools_end_mill_search@(part,
+		  maximum_diameter, dz, "simple_pocket")
+	    else
+		#call d@(form@("Simple_Pocket: %v%: %v%\n") %
+		#  f@(part.name) / f@(comment))
+		#call search_results_show@(end_mill)
+
+		call operation_simple_pocket_append@(part, comment,
+		  end_mill_simple_pocket@Operation_Order, end_mill,
+		  null@Operation, x1, y1, x2, y2, z_start, z_stop,
+		  corner_radius, tool_radius, pocket_kind)
 
 
 routine step_and_repeat@Part
@@ -12646,18 +12681,27 @@ routine tools_search@Part
 
     # Lookup the {Surface_Speeds} for {named_material}:
     surface_speeds :@= lookup@(shop.surface_speeds_table, named_material)
-    if surface_speeds !== null@Surface_Speeds
-	# Now search through {tools}:
-	zero :@= in@(0.0)
-	delta :@= in@(.000001)
-	tools :@= shop.tools
+    surface_speeds_ok :@= surface_speeds !== null@Surface_Speeds
 
-	size :@= tools.size
-	index :@= 0
-	while index < size
-	    # Check {tool} to see if it is exceptable:
-	    tool :@= tools[index]
+    # Now search through {tools}:
+    zero :@= in@(0.0)
+    delta :@= in@(.000001)
+    tools :@= shop.tools
+    size :@= tools.size
+    index :@= 0
+    while index < size
+	# Check {tool} to see if it is exceptable:
+	tool :@= tools[index]
 
+	# Keep track of search results for this tool:
+	call trim@(tool.search_results, 0)
+
+	# Always log {surface_speeds_ok}:
+	call search_results_append@(tool, surface_speeds_ok, 
+	  form@("Surface speeds are acceptable for material (%v%)") /
+	  f@(string@(named_material)))
+
+	if surface_speeds_ok
 	    # See whether {tool} has a chance of being a match:
 	    priority :@= match_routine(tool, parameter1, parameter2, from)
 
@@ -12731,11 +12775,50 @@ routine tools_search@Part
 		    best_tool := tool
 	    index := index + 1
 
+    if best_tool == null@Tool
+	index := 0
+	closest_tool :@= null@Tool
+	largest_success_count :@= 0
+	while index < size
+	    # Check {tool} to see if it is exceptable:
+	    tool :@= tools[index]
+
+	    success_count :@= 0
+	    search_results :@= tool.search_results
+	    search_results_size :@= search_results.size
+	    search_results_index :@= 0
+	    while search_results_index < search_results_size
+		search_result :@= search_results[search_results_index]
+		if search_result[0] = '1'
+		    success_count := success_count + 1
+		search_results_index := search_results_index + 1
+
+	    if success_count > largest_success_count
+		largest_success_count := success_count
+		closest_tool := tool
+
+	if closest_tool !== null@Tool
+	    call search_results_show@(closest_tool)
+
     #call d@(form@("<=tools_search@Shop(%v%, *, %i%, %i%, %v%) => %v%\n,n\") %
     #  f@(part.name) % f@(parameter1) % f@(parameter2) % f@(from) /
     #  f@(best_tool.name))
 
     return best_tool
+
+
+routine search_results_show@Tool
+    takes tool Tool
+    returns_nothing
+
+    call d@(form@("Tool:%v%\n") / f@(tool.name))
+    search_results :@= tool.search_results
+    size :@= search_results.size
+    index :@= 0
+    while index < size
+	search_result :@= search_results[index]
+	call d@(form@("  [%d%]:%s%\n\") % f@(index) / f@(search_result))
+	index := index + 1
 
 
 routine translate@Part
@@ -13253,9 +13336,10 @@ routine xml_read@Part
 
 	    # Now deal with any extra material:
 	    extra1 :@= shop.extra1
-	    #call d@(form@("extra1=%p%\n\") / f@(extra1))
 	    if extra1 !== null@Point
 		extra2 :@= shop.extra2
+		#call d@(form@("extra1=%p% extra2=%p%\n\") %
+		#  f@(extra1) / f@(extra2))
 		dx1 :@= c1x - extra1.x
 		dx2 :@= extra2.x - c2x
 		dy1 :@= c1y - extra1.y
@@ -13276,8 +13360,8 @@ routine xml_read@Part
 		part.dy_original := part.dy + dy1 + dy2
 		part.dz_original := part.dz + dz1 + dz2
 		#call d@(form@(
-		#  "dx=%i% dy=%i% dz=%i% dxo=%i% dyo=%i% dzo=%i%\n") %
-		#  f@(part.dx) % f@(part.dy) % f@(part.dz) %
+		#  "nm=%v% dx=%i% dy=%i% dz=%i% dxo=%i% dyo=%i% dzo=%i%\n") %
+		#  f@(part.name) % f@(part.dx) % f@(part.dy) % f@(part.dz) %
 		#  f@(part.dx_original) % f@(part.dy_original) /
 		#  f@(part.dz_original))
 		part.extra1 := extra1
@@ -14809,6 +14893,12 @@ routine create@Shop
       in@(0.1285), 2, in@(1.750), degrees@(118.0), stub)
     drill_1_8 :@= drill_append@(shop, "1/8 drill", 18, hss,
       in@("1/8"), 2, in@(1.750), degrees@(118.0), stub)
+    drill_1_16 :@= drill_append@(shop, "1/16 drill", 19, hss,
+      in@("1/16"), 2, in@(1.750), degrees@(118.0), stub)
+    drill_3_32 :@= drill_append@(shop, "3/32 drill", 20, hss,
+      in@("3/32"), 2, in@(1.750), degrees@(118.0), stub)
+    drill_42 :@= drill_append@(shop, "#42 drill", 21, hss,
+      in@(0.0935), 2, in@(1.750), degrees@(118.0), stub)
 
     laser_007 :@= end_mill_append@(shop, "Laser_007", 100, hss,
       in@(0.007), 2, in@(0.750), laser)
@@ -16504,6 +16594,7 @@ routine create@Tool
     tool.flutes_count := flutes
     tool.maximum_z_depth := maximum_z_depth
     tool.drill := null@Tool_Drill
+    tool.search_results := new@Array[String]()
     return tool
 
 
@@ -16658,23 +16749,27 @@ routine end_mill_match@Tool
     # A positive number that increases with the diameter is returned
     # if a match occurs.  Otherwise, -1.0 is returned if there is no match.
 
+    tool_diameter :@= tool.diameter
+    tool_maximum_z_depth :@= tool.maximum_z_depth
+
     priority :@= -123456.0
-    switch tool.kind
-      case end_mill
-	diameter :@= tool.diameter
-	tool_maximum_z_depth :@= tool.maximum_z_depth
-	if (maximum_diameter < in@(0.0) || diameter <= maximum_diameter) &&
-	  -maximum_z_depth <= tool_maximum_z_depth
-	    priority := in@(diameter) * 10.0 - in@(tool_maximum_z_depth)
-
-	debug :@= 0f
-	#debug := 1t
-        if debug
-	    call d@(form@(
-	      "end_mill_match@Tool(%v%, %i%, %i%, %v%) => %f%\n\") %
-	      f@(tool.name) % f@(maximum_diameter) % f@(maximum_z_depth) %
-	      f@(from) / f@(priority))
-
+    is_end_mill :@= tool.kind = end_mill@Tool_Kind
+    call search_results_append@(tool, is_end_mill, "Is end mill")
+    if is_end_mill
+	diameter_ok :@=
+	  maximum_diameter < in@(0.0) || tool_diameter <= maximum_diameter
+	call search_results_append@(tool, diameter_ok,
+	  form@("Diameter (%i%) < 0 || Diameter (%i%) <= Max Diameter (%i%)") %
+	  f@(tool_diameter) % f@(tool_diameter) / f@(maximum_diameter))
+	if diameter_ok
+	    # Verify that tool depth works:
+	    z_depth_ok :@= -maximum_z_depth <= tool_maximum_z_depth
+	    call search_results_append@(tool, z_depth_ok,
+	      form@("Max Z depth (%i%) <= Tool Max Z Depth (%i%)") %
+	      f@(-maximum_z_depth) / f@(tool_maximum_z_depth))
+	    if z_depth_ok
+		priority :=
+		  in@(tool_diameter) * 10.0 - in@(tool_maximum_z_depth)
     return priority
 
 routine is_laser@Tool
@@ -16786,6 +16881,19 @@ routine priority_compare@Tool
     # {tool1} should be sorted before, at, or after {tool2}.
 
     return -compare@(tool1.priority, tool2.priority)
+
+
+routine search_results_append@Tool
+    takes tool Tool
+    takes test Logical
+    takes message String
+    returns_nothing
+
+    # This routine will log {test} and {message} onto the search results
+    # list of {tool}.
+
+    call append@(tool.search_results,
+      read_only_copy@(form@("%d%:%s%") % f@(test) / f@(message)))
 
 
 routine tip_depth@Tool

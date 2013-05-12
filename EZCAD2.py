@@ -350,7 +350,10 @@ class Length:
     def __format__(self, fmt):
 	""" Length: Format {self} into a string an return it. """
 
-	return "%f" % (self.value)
+	value = self.value
+	if fmt == 'm':
+	    value = value * 25.4
+	return "%f" % value
 
     def __mul__(self, scalar):
 	""" Length: Multiply {self} by {scalar}. """
@@ -726,6 +729,7 @@ class Part:
 	changed = 1
 	while changed != 0:
 	    changed = self._dimensions_update(-1000000)
+            print "Part.process():changed={0}".format(changed)
 
 	# Open the XML output stream:
 	xml_file_name = self._name + ".xml"
@@ -1229,11 +1233,10 @@ class Part:
 	xtne = self.xtne
 	ezcad = self._ezcad
 	xml_stream = ezcad._xml_stream
-	if xml_stream != None:
-	    xml_stream.write( ('{0}<Extra C1X="{1}" C1Y="{2}" C1Z="{3}"' + \
-	      ' C2X="{4}" C2Y="{5}" C2Z="{6}"/>\n'). \
-	      format(" " * ezcad._xml_indent,
-	      xbsw.x, xbsw.y, xbsw.z, xtne.x, xtne.y, xtne.z))
+	self._xml_lines.append( ('{0}<Extra C1X="{1}" C1Y="{2}" C1Z="{3}"' + \
+	  ' C2X="{4}" C2Y="{5}" C2Z="{6}"/>\n'). \
+	  format(" " * ezcad._xml_indent,
+	  xbsw.x, xbsw.y, xbsw.z, xtne.x, xtne.y, xtne.z))
 
     def extra_xyz(self, dx, dy, dz):
 	""" {Part}: Add some extra material the block of {self} by {dx},
@@ -2629,12 +2632,12 @@ class Part:
 	    for {self}.  If {tool_name} is an empty string, the preferred
 	    tool is cleared. """
 
-	if self.construct_mode():
-	    ezcad = self.ezcad
-	    xml_stream = ezcad.xml_stream
+	ezcad = self._ezcad
+	xml_stream = ezcad._xml_stream
+	if xml_stream != None:
 	    xml_stream.write( \
 	      '{0}<Tool_Prefer Tool_Name="{1}"/>\n'. \
-	      format(ezcad._xml_indent, tool_name))
+	      format(" " * ezcad._xml_indent, tool_name))
 
     def tooling_plate(self, comment, flags, trace = False):
 	""" Part construct: Cause a grid of tooling plate holes to be
